@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+  <action>
+    <actionName>run</actionName>
+    <goals>
+      <!-- đảm bảo biên dịch trước khi chạy -->
+      <goal>process-classes</goal>
+      <!-- gọi đúng plugin exec -->
+      <goal>org.codehaus.mojo:exec-maven-plugin:3.1.0:java</goal>
+    </goals>
+    <properties>
+      <exec.mainClass>com.mycompany.server.Server</exec.mainClass>
+      <exec.classpathScope>runtime</exec.classpathScope>
+      <exec.jvmArgs>-Dfile.encoding=UTF-8</exec.jvmArgs>
+    </properties>
+  </action>
+
+
+  <action>
+    <actionName>build</actionName>
+    <goals>
+      <goal>clean</goal>
+      <goal>package</goal>
+    </goals>
+  </action>
+
+  <action>
+    <actionName>run.single.main</actionName>
+    <packagings>
+      <packaging>*</packaging>
+    </packagings>
+    <goals>
+      <goal>process-classes</goal>
+      <goal>org.codehaus.mojo:exec-maven-plugin:3.1.0:java</goal>
+    </goals>
+    <properties>
+      <exec.mainClass>${packageClassName}</exec.mainClass>
+      <exec.classpathScope>runtime</exec.classpathScope>
+      <exec.jvmArgs>-Dfile.encoding=UTF-8</exec.jvmArgs>
+    </properties>
+  </action>
+
+</actions>
