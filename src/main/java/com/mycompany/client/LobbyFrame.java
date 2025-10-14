@@ -1,8 +1,11 @@
 package com.mycompany.client;
 
 import javax.swing.*;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 import java.awt.*;
 import java.awt.event.*;
+import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -11,9 +14,19 @@ public class LobbyFrame extends JFrame {
     private final String username;
     private final String host;
     private final int port;
-    private AuthClient client;     // ⭐ dùng lại socket đã LOGIN
+    private AuthClient client;    
 
-    // UI controls
+    // ---------- URLs placeholder ----------
+    private static final String LEADERBOARD_URL = "about:blank";
+    private static final String PRACTICE_URL    = "about:blank";
+
+    // ---------- Tabs ----------
+    private final JTabbedPane tabs = new JTabbedPane();
+    private static final int TAB_LOBBY = 0;
+    private static final int TAB_LEADERBOARD = 1;
+    private static final int TAB_PRACTICE = 2;
+
+    // ---------- UI controls (tab Lobby) ----------
     private final JTextArea taLog = new JTextArea(10, 40);
     private final JButton btnPing = new JButton("Send PING");
     private final JButton btnLogout = new JButton("Logout");
@@ -41,26 +54,73 @@ public class LobbyFrame extends JFrame {
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout(10, 10));
 
-        // Top bar
+        // Header
         JPanel top = new JPanel(new BorderLayout());
         top.add(new JLabel("Welcome, " + username + "  |  Server: " + host + ":" + port), BorderLayout.WEST);
         add(top, BorderLayout.NORTH);
 
+        // ===== Tabs =====
+        tabs.addTab("Lobby", buildLobbyPanel());                  // tab 0
+        tabs.addTab("Leaderboard", buildPlaceholderPanel(
+         "<html><h2>Leaderboard</h2><p>Coming soon...</p></html>",
+        "Open Leaderboard", "leaderboard"));
+
+         tabs.addTab("Practice", buildPlaceholderPanel(
+           "<html><h2>Practice Mode</h2><p>Coming soon...</p></html>",
+             "Open Practice", "practice"));
+
+
+        // Chỉ poll khi ở tab Lobby
+        tabs.addChangeListener(new ChangeListener() {
+            @Override public void stateChanged(ChangeEvent e) {
+                if (tabs.getSelectedIndex() == TAB_LOBBY) startPolling();
+                else stopPolling();
+            }
+        });
+
+        add(tabs, BorderLayout.CENTER);
+
+        pack();
+        setLocationRelativeTo(null);
+
+        // Events (tab Lobby)
+        btnPing.addActionListener(e -> doPing());
+        btnLogout.addActionListener(e -> doLogout());
+        btnRefresh.addActionListener(e -> refreshOnline());
+        btnChallenge.addActionListener(e -> sendInvite());
+
+        addWindowListener(new WindowAdapter() {
+            @Override public void windowOpened(WindowEvent e) {
+                log("Using existing session on " + host + ":" + port);
+                if (tabs.getSelectedIndex() == TAB_LOBBY) {
+                    startPolling();
+                    refreshOnline();
+                }
+            }
+            @Override public void windowClosing(WindowEvent e) {
+                stopPolling();
+                closeClientQuiet(); // đóng kết nối khi cửa sổ đóng
+            }
+        });
+    }
+
+    /* ================== Panels ================== */
+    private JComponent buildLobbyPanel() {
         // Left: console + events
         taLog.setEditable(false);
         taLog.setLineWrap(true);
         taEvent.setEditable(false);
         taEvent.setLineWrap(true);
 
-        JPanel left = new JPanel(new BorderLayout(6, 6));
-        left.add(new JLabel("Console"), BorderLayout.NORTH);
-        left.add(new JScrollPane(taLog), BorderLayout.CENTER);
+        JPanel leftTop = new JPanel(new BorderLayout(6, 6));
+        leftTop.add(new JLabel("Console"), BorderLayout.NORTH);
+        leftTop.add(new JScrollPane(taLog), BorderLayout.CENTER);
 
-        JPanel eventPanel = new JPanel(new BorderLayout(6, 6));
-        eventPanel.add(new JLabel("Invites / Events"), BorderLayout.NORTH);
-        eventPanel.add(new JScrollPane(taEvent), BorderLayout.CENTER);
+        JPanel leftBottom = new JPanel(new BorderLayout(6, 6));
+        leftBottom.add(new JLabel("Invites / Events"), BorderLayout.NORTH);
+        leftBottom.add(new JScrollPane(taEvent), BorderLayout.CENTER);
 
-        JSplitPane leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, left, eventPanel);
+        JSplitPane leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, leftTop, leftBottom);
         leftSplit.setResizeWeight(0.6);
 
         // Right: online users
@@ -75,48 +135,63 @@ public class LobbyFrame extends JFrame {
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplit, right);
         split.setResizeWeight(0.7);
-        add(split, BorderLayout.CENTER);
 
         // Bottom
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         bottom.add(btnPing);
         bottom.add(btnLogout);
-        add(bottom, BorderLayout.SOUTH);
 
-        pack();
-        setLocationRelativeTo(null);
+        JPanel root = new JPanel(new BorderLayout(8, 8));
+        root.add(split, BorderLayout.CENTER);
+        root.add(bottom, BorderLayout.SOUTH);
+        return root;
+    }
 
-        // Events
-        btnPing.addActionListener(e -> doPing());
-        btnLogout.addActionListener(e -> doLogout());
-        btnRefresh.addActionListener(e -> refreshOnline());
-        btnChallenge.addActionListener(e -> sendInvite());
+    private JComponent buildPlaceholderPanel(String htmlTitle, String buttonText, String type) {
+    JPanel p = new JPanel(new GridBagLayout());
+    GridBagConstraints c = new GridBagConstraints();
+    c.insets = new Insets(10, 10, 10, 10);
+    c.gridx = 0; c.gridy = 0; c.anchor = GridBagConstraints.CENTER;
+    p.add(new JLabel(htmlTitle), c);
 
-        addWindowListener(new WindowAdapter() {
-            @Override public void windowOpened(WindowEvent e) {
-                // ⭐ KHÔNG reconnect nữa – đã login sẵn
-                log("Using existing session on " + host + ":" + port);
-                startPolling();
-                refreshOnline();
+    JButton btnOpen = new JButton(buttonText);
+    btnOpen.addActionListener(e -> {
+        if ("leaderboard".equals(type)) {
+            new LeaderboardFrame().setVisible(true);
+        } else if ("practice".equals(type)) {
+            new PracticeFrame().setVisible(true);
+        }
+    });
+    c.gridy = 1; p.add(btnOpen, c);
+
+    return p;
+}
+
+
+    private void openUrl(String url) {
+        try {
+            if (Desktop.isDesktopSupported()) {
+                Desktop.getDesktop().browse(new URI(url));
+            } else {
+                JOptionPane.showMessageDialog(this, "Desktop is not supported.", "Error", JOptionPane.ERROR_MESSAGE);
             }
-            @Override public void windowClosing(WindowEvent e) {
-                stopPolling();
-                closeClientQuiet(); // đóng kết nối khi cửa sổ đóng
-            }
-        });
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Cannot open URL", JOptionPane.WARNING_MESSAGE);
+        }
     }
 
     /* ================== Poll timers ================== */
     private void startPolling() {
-        if (whoTimer != null) whoTimer.stop();
-        whoTimer = new Timer(5000, e -> refreshOnline());
-        whoTimer.setInitialDelay(200);
-        whoTimer.start();
-
-        if (eventTimer != null) eventTimer.stop();
-        eventTimer = new Timer(1000, e -> pollEvent());
-        eventTimer.setInitialDelay(500);
-        eventTimer.start();
+        if (whoTimer == null) {
+            whoTimer = new Timer(5000, e -> refreshOnline());
+            whoTimer.setInitialDelay(200);
+        }
+        if (eventTimer == null) {
+            eventTimer = new Timer(1000, e -> pollEvent());
+            eventTimer.setInitialDelay(500);
+        }
+        if (!whoTimer.isRunning())   whoTimer.start();
+        if (!eventTimer.isRunning()) eventTimer.start();
     }
     private void stopPolling() {
         if (whoTimer != null) whoTimer.stop();

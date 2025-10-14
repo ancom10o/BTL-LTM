@@ -5,9 +5,12 @@ com\mycompany\client\AuthFrame.class
 com\mycompany\client\AuthClient.class
 com\mycompany\client\GameFrame$1.class
 com\mycompany\client\LobbyFrame$4.class
+com\mycompany\client\PracticeFrame.class
 com\mycompany\client\LobbyFrame$3.class
+com\mycompany\client\LeaderboardFrame.class
 com\mycompany\server\DbPool.class
 com\mycompany\server\ClientHandler.class
+com\mycompany\client\LobbyFrame$7.class
 com\mycompany\client\Client.class
 com\mycompany\client\LobbyFrame$2.class
 com\mycompany\client\AuthFrame$1.class
