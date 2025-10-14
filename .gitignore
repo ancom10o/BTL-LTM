@@ -1,0 +1,12 @@
+# Bỏ qua thư mục build của Maven
+target/
+
+# Bỏ qua file cấu hình của IDE
+.idea/
+.vscode/
+*.iml
+
+# Bỏ qua file hệ thống
+.DS_Store
+Thumbs.db
+
