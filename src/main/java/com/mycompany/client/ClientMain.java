@@ -1,9 +1,15 @@
 package com.mycompany.client;
 
-import javax.swing.*;
+import javafx.application.Application;
+import javafx.stage.Stage;
 
-public class ClientMain {
+public class ClientMain extends Application {
+    @Override
+    public void start(Stage primaryStage) {
+        new AuthFrame().show();
+    }
+
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new AuthFrame().setVisible(true));
+        launch(args);
     }
 }

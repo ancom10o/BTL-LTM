@@ -1,17 +1,26 @@
 package com.mycompany.client;
 
-import javax.swing.*;
-import java.awt.*;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.Label;
+import javafx.scene.layout.BorderPane;
+import javafx.stage.Stage;
 
-public class LeaderboardFrame extends JFrame {
+public class LeaderboardFrame extends Stage {
 
     public LeaderboardFrame() {
-        super("Leaderboard");
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        setSize(600, 400);
-        setLocationRelativeTo(null);
+        super();
+        setTitle("Leaderboard");
 
-        JLabel label = new JLabel("<html><h2>Bảng xếp hạng</h2><p>Chức năng đang phát triển...</p></html>", SwingConstants.CENTER);
-        add(label, BorderLayout.CENTER);
+        Label label = new Label("Bảng xếp hạng\nChức năng đang phát triển...");
+        label.setStyle("-fx-font-size: 18px;");
+        label.setAlignment(Pos.CENTER);
+
+        BorderPane root = new BorderPane();
+        root.setCenter(label);
+
+        Scene scene = new Scene(root, 600, 400);
+        setScene(scene);
+        centerOnScreen();
     }
 }

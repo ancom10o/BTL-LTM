@@ -1,0 +1,26 @@
+﻿id,display_name,category,audio_file
+cajon,Cajon,INSTRUMENT,/sounds/game/music_instrument/cajon.wav
+cymbal,Cymbal,INSTRUMENT,/sounds/game/music_instrument/cymbal.wav
+electronic_drum,Trống điện,INSTRUMENT,/sounds/game/music_instrument/electronic_drum.wav
+flute,Sáo,INSTRUMENT,/sounds/game/music_instrument/flute.wav
+guitar,Đàn guitar,INSTRUMENT,/sounds/game/music_instrument/guitar.wav
+harp,Đàn harp,INSTRUMENT,/sounds/game/music_instrument/harp.wav
+organ,Đàn organ,INSTRUMENT,/sounds/game/music_instrument/organ.wav
+piano,Đàn piano,INSTRUMENT,/sounds/game/music_instrument/piano.wav
+tambourine,Lục lạc,INSTRUMENT,/sounds/game/music_instrument/tambourine.wav
+violin,Đàn violin,INSTRUMENT,/sounds/game/music_instrument/violin.wav
+xylophone,Mộc cầm,INSTRUMENT,/sounds/game/music_instrument/xylophone.wav
+bear,Gấu,ANIMAL,/sounds/game/animal/bear.wav
+bird,Chim,ANIMAL,/sounds/game/animal/bird.wav
+cat,Mèo,ANIMAL,/sounds/game/animal/cat.wav
+chicken,Gà,ANIMAL,/sounds/game/animal/chicken.wav
+cow,Bò,ANIMAL,/sounds/game/animal/cow.wav
+dog,Chó,ANIMAL,/sounds/game/animal/dog.wav
+duck,Vịt,ANIMAL,/sounds/game/animal/duck.wav
+elephant,Voi,ANIMAL,/sounds/game/animal/elephant.wav
+frog,Ếch,ANIMAL,/sounds/game/animal/frog.wav
+horse,Ngựa,ANIMAL,/sounds/game/animal/horse.wav
+lion,Sư tử,ANIMAL,/sounds/game/animal/lion.wav
+monkey,Khỉ,ANIMAL,/sounds/game/animal/monkey.wav
+pig,Heo,ANIMAL,/sounds/game/animal/pig.wav
+sheep,Cừu,ANIMAL,/sounds/game/animal/sheep.wav

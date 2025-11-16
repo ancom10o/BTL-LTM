@@ -1,68 +1,83 @@
 package com.mycompany.client;
 
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import javafx.application.Platform;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.paint.Color;
+import javafx.stage.Stage;
+import javafx.stage.WindowEvent;
 
-public class GameFrame extends JFrame {
+public class GameFrame extends Stage {
     private final String username;
     private final String opponent;
-    private final AuthClient client; // shared session (can be null if you prefer)
+    private final AuthClient client;
 
-    private final JTextArea taLog = new JTextArea(10, 48);
-    private final JButton btnLeave = new JButton("Leave Match");
+    private final TextArea taLog = new TextArea();
+    private final Button btnLeave = new Button("Leave Match");
 
     public GameFrame(String username, String opponent, AuthClient client) {
-        super("Match: " + username + " vs " + opponent);
+        super();
         this.username = username;
         this.opponent = opponent;
         this.client = client;
 
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        setLayout(new BorderLayout(10, 10));
+        setTitle("Match: " + username + " vs " + opponent);
 
         // Header
-        JPanel top = new JPanel(new BorderLayout());
-        top.add(new JLabel("Playing: " + username + "  vs  " + opponent), BorderLayout.WEST);
-        add(top, BorderLayout.NORTH);
+        HBox top = new HBox(10);
+        top.setPadding(new Insets(10));
+        top.getChildren().add(new Label("Playing: " + username + "  vs  " + opponent));
 
         // Center placeholder (canvas area)
-        JPanel arena = new JPanel();
-        arena.setPreferredSize(new Dimension(640, 360));
-        arena.setBackground(new Color(245, 246, 250));
-        arena.setBorder(BorderFactory.createTitledBorder("Game Area (placeholder)"));
-        add(arena, BorderLayout.CENTER);
+        Pane arena = new Pane();
+        arena.setPrefSize(640, 360);
+        arena.setStyle("-fx-background-color: #f5f6fa; -fx-border-color: #ccc; -fx-border-width: 1;");
+        Label arenaLabel = new Label("Game Area (placeholder)");
+        arenaLabel.setStyle("-fx-font-size: 14px;");
+        StackPane arenaContainer = new StackPane(arena, arenaLabel);
 
         // Right side log
         taLog.setEditable(false);
-        taLog.setLineWrap(true);
-        JScrollPane sp = new JScrollPane(taLog);
-        sp.setPreferredSize(new Dimension(300, 360));
-        add(sp, BorderLayout.EAST);
+        taLog.setWrapText(true);
+        taLog.setPrefRowCount(20);
+        ScrollPane sp = new ScrollPane(taLog);
+        sp.setPrefSize(300, 360);
+
+        // Split pane for arena and log
+        SplitPane centerSplit = new SplitPane(arenaContainer, sp);
+        centerSplit.setOrientation(javafx.geometry.Orientation.HORIZONTAL);
+        centerSplit.setDividerPositions(0.68);
 
         // Bottom bar
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        bottom.add(btnLeave);
-        add(bottom, BorderLayout.SOUTH);
+        HBox bottom = new HBox(10);
+        bottom.setAlignment(Pos.CENTER_RIGHT);
+        bottom.setPadding(new Insets(10));
+        bottom.getChildren().add(btnLeave);
 
-        pack();
-        setLocationRelativeTo(null);
+        VBox root = new VBox(10);
+        root.getChildren().addAll(top, centerSplit, bottom);
+
+        Scene scene = new Scene(root, 960, 420);
+        setScene(scene);
+        centerOnScreen();
 
         // Events
-        btnLeave.addActionListener(e -> doLeave());
+        btnLeave.setOnAction(e -> doLeave());
 
-        addWindowListener(new WindowAdapter() {
-            @Override public void windowOpened(WindowEvent e) {
-                log("Match started with " + opponent);
-            }
+        setOnShown(e -> {
+            log("Match started with " + opponent);
         });
     }
 
     private void doLeave() {
         // Optionally tell server later (e.g., SEND/LEAVE). For now just close.
-        dispose();
+        close();
     }
 
-    private void log(String s) { taLog.append(s + "\n"); }
+    private void log(String s) {
+        Platform.runLater(() -> taLog.appendText(s + "\n"));
+    }
 }
