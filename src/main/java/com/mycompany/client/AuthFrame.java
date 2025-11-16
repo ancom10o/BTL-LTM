@@ -365,22 +365,15 @@ public class AuthFrame extends Stage {
             client = new AuthClient(DEFAULT_HOST, DEFAULT_PORT);
             client.connect();
             log("Connected to " + DEFAULT_HOST + ":" + DEFAULT_PORT);
-            if (showDialog) {
-                Platform.runLater(() -> {
-                    Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                    alert.setTitle("Info");
-                    alert.setHeaderText("Connection OK");
-                    alert.showAndWait();
-                });
-            }
+            // Removed "Connection OK" dialog - no need to show
             return true;
         } catch (Exception ex) {
             log("Connect failed: " + ex.getMessage());
             if (showDialog) {
                 Platform.runLater(() -> {
-                    Alert alert = new Alert(Alert.AlertType.WARNING);
-                    alert.setTitle("Connection failed");
-                    alert.setHeaderText(ex.getMessage());
+                    Alert alert = new Alert(Alert.AlertType.ERROR);
+                    alert.setTitle("Lỗi kết nối");
+                    alert.setHeaderText("Không thể kết nối đến server: " + ex.getMessage());
                     alert.showAndWait();
                 });
             }
@@ -411,11 +404,7 @@ public class AuthFrame extends Stage {
             String r = (resp == null) ? "" : resp.trim();
             boolean ok = r.toUpperCase().startsWith("LOGIN_OK");
             if (ok) {
-                Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                alert.setTitle("Login");
-                alert.setHeaderText("Login successful.");
-                alert.showAndWait();
-
+                // Login successful - go directly to lobby, no alert
                 final String hostVal = DEFAULT_HOST;
                 final int portVal = DEFAULT_PORT;
                 final String userVal = user;
@@ -426,9 +415,18 @@ public class AuthFrame extends Stage {
                     close();
                 });
             } else {
-                Alert alert = new Alert(Alert.AlertType.WARNING);
-                alert.setTitle("Login failed");
-                alert.setHeaderText(resp == null ? "No response" : resp);
+                // Login failed - show error message
+                String errorMsg = "Sai tài khoản hoặc mật khẩu";
+                if (resp != null && resp.toUpperCase().contains("ERROR")) {
+                    if (resp.contains("Invalid") || resp.contains("sai")) {
+                        errorMsg = "Sai tài khoản hoặc mật khẩu";
+                    } else {
+                        errorMsg = resp;
+                    }
+                }
+                Alert alert = new Alert(Alert.AlertType.ERROR);
+                alert.setTitle("Đăng nhập thất bại");
+                alert.setHeaderText(errorMsg);
                 alert.showAndWait();
             }
         });

@@ -14,6 +14,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
+import javafx.stage.StageStyle;
 import javafx.stage.WindowEvent;
 import javafx.util.Duration;
 
@@ -26,7 +27,7 @@ public class LobbyFrame extends Stage {
     private final String username;
     private final String host;
     private final int port;
-    private AuthClient client;
+    private AuthClient client;    
 
     // Online users list (excluding self)
     private final ListView<String> lstOnline = new ListView<>();
@@ -58,15 +59,21 @@ public class LobbyFrame extends Stage {
         // Main container with background
         StackPane root = new StackPane();
         
-        ImageView backgroundImageView = null;
+        ImageView backgroundImageView;
+        Image bgImage;
         if (bgStream != null) {
-            Image bgImage = new Image(bgStream);
+            bgImage = new Image(bgStream);
             backgroundImageView = new ImageView(bgImage);
-            backgroundImageView.setPreserveRatio(false);
+            backgroundImageView.setPreserveRatio(true); // Keep aspect ratio
             backgroundImageView.setSmooth(true);
+            // Set initial size
+            backgroundImageView.setFitWidth(windowWidth);
+            backgroundImageView.setFitHeight(windowHeight);
             root.getChildren().add(backgroundImageView);
         } else {
             root.setStyle("-fx-background-color: linear-gradient(to bottom, #87CEEB 0%, #98D8C8 100%);");
+            backgroundImageView = null;
+            bgImage = null;
         }
 
         // Menu overlay in the center
@@ -82,10 +89,15 @@ public class LobbyFrame extends Stage {
         scene.setFill(null);
         setScene(scene);
         
-        // Bind background image size to scene size for dynamic resizing
-        if (backgroundImageView != null) {
-            backgroundImageView.fitWidthProperty().bind(scene.widthProperty());
-            backgroundImageView.fitHeightProperty().bind(scene.heightProperty());
+        // Bind background image size to scene size, keeping aspect ratio
+        // Image will scale to cover the area, parts may be cropped
+        final ImageView finalImageView = backgroundImageView;
+        final Image finalImage = bgImage;
+        if (finalImageView != null && finalImage != null) {
+            // Use listener to calculate size that covers the area while maintaining aspect ratio
+            scene.widthProperty().addListener((obs, oldVal, newVal) -> updateImageSize(finalImageView, finalImage, scene));
+            scene.heightProperty().addListener((obs, oldVal, newVal) -> updateImageSize(finalImageView, finalImage, scene));
+            updateImageSize(finalImageView, finalImage, scene);
         }
         
         centerOnScreen();
@@ -152,6 +164,7 @@ public class LobbyFrame extends Stage {
             Alert alert = new Alert(Alert.AlertType.INFORMATION);
             alert.setTitle("Lịch sử đấu");
             alert.setHeaderText("Chức năng đang phát triển...");
+            centerAlertOnLobby(alert);
             alert.showAndWait();
         });
 
@@ -171,6 +184,226 @@ public class LobbyFrame extends Stage {
         );
 
         return menu;
+    }
+
+    private void updateImageSize(ImageView imageView, Image image, Scene scene) {
+        double sceneWidth = scene.getWidth();
+        double sceneHeight = scene.getHeight();
+        double imageWidth = image.getWidth();
+        double imageHeight = image.getHeight();
+        
+        double scaleX = sceneWidth / imageWidth;
+        double scaleY = sceneHeight / imageHeight;
+        // Use the larger scale to ensure coverage (may crop)
+        double scale = Math.max(scaleX, scaleY);
+        
+        imageView.setFitWidth(imageWidth * scale);
+        imageView.setFitHeight(imageHeight * scale);
+    }
+
+    private void centerAlertOnLobby(Alert alert) {
+        alert.setOnShown(evt -> {
+            Stage alertStage = (Stage) alert.getDialogPane().getScene().getWindow();
+            double alertWidth = alertStage.getWidth();
+            double alertHeight = alertStage.getHeight();
+            double lobbyX = this.getX();
+            double lobbyY = this.getY();
+            double lobbyWidth = this.getWidth();
+            double lobbyHeight = this.getHeight();
+            
+            alertStage.setX(lobbyX + (lobbyWidth - alertWidth) / 2);
+            alertStage.setY(lobbyY + (lobbyHeight - alertHeight) / 2);
+        });
+    }
+
+    private void showCustomAlert(String title, String message, Alert.AlertType type) {
+        // Create custom dialog with rounded corners
+        Stage dialog = new Stage();
+        dialog.initModality(Modality.APPLICATION_MODAL);
+        dialog.initOwner(this);
+        dialog.setTitle(title);
+        dialog.setResizable(false);
+        dialog.initStyle(StageStyle.TRANSPARENT); // For rounded corners
+
+        VBox root = new VBox(20);
+        root.setPadding(new Insets(25));
+        root.setAlignment(Pos.CENTER);
+        root.setStyle("-fx-background-color: white; " +
+                     "-fx-background-radius: 20; " +
+                     "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 10, 0, 0, 2);");
+
+        Label messageLabel = new Label(message);
+        messageLabel.setWrapText(true);
+        messageLabel.setStyle("-fx-font-size: 14px; " +
+                            "-fx-text-fill: #333; " +
+                            "-fx-alignment: center;");
+        messageLabel.setMaxWidth(350);
+
+        Button okButton = new Button("OK");
+        okButton.setStyle("-fx-background-color: #2d5016; " +
+                         "-fx-background-radius: 15; " +
+                         "-fx-text-fill: white; " +
+                         "-fx-font-size: 14px; " +
+                         "-fx-font-weight: bold; " +
+                         "-fx-pref-width: 100; " +
+                         "-fx-pref-height: 35; " +
+                         "-fx-cursor: hand;");
+        okButton.setOnMouseEntered(e -> okButton.setStyle(
+            "-fx-background-color: #3a6b1f; " +
+            "-fx-background-radius: 15; " +
+            "-fx-text-fill: white; " +
+            "-fx-font-size: 14px; " +
+            "-fx-font-weight: bold; " +
+            "-fx-pref-width: 100; " +
+            "-fx-pref-height: 35; " +
+            "-fx-cursor: hand;"));
+        okButton.setOnMouseExited(e -> okButton.setStyle(
+            "-fx-background-color: #2d5016; " +
+            "-fx-background-radius: 15; " +
+            "-fx-text-fill: white; " +
+            "-fx-font-size: 14px; " +
+            "-fx-font-weight: bold; " +
+            "-fx-pref-width: 100; " +
+            "-fx-pref-height: 35; " +
+            "-fx-cursor: hand;"));
+        okButton.setOnAction(e -> dialog.close());
+
+        root.getChildren().addAll(messageLabel, okButton);
+
+        Scene scene = new Scene(root);
+        scene.setFill(null); // Transparent background
+        dialog.setScene(scene);
+
+        // Center dialog relative to lobby window
+        dialog.setOnShown(evt -> {
+            Stage dialogStage = (Stage) dialog.getScene().getWindow();
+            double dialogWidth = dialogStage.getWidth();
+            double dialogHeight = dialogStage.getHeight();
+            double lobbyX = this.getX();
+            double lobbyY = this.getY();
+            double lobbyWidth = this.getWidth();
+            double lobbyHeight = this.getHeight();
+            
+            dialogStage.setX(lobbyX + (lobbyWidth - dialogWidth) / 2);
+            dialogStage.setY(lobbyY + (lobbyHeight - dialogHeight) / 2);
+        });
+
+        dialog.showAndWait();
+    }
+
+    private void showChallengeDialog(String opponent) {
+        // Create custom dialog with rounded corners for challenge notification
+        Stage dialog = new Stage();
+        dialog.initModality(Modality.APPLICATION_MODAL);
+        dialog.initOwner(this);
+        dialog.setTitle("Thách đấu");
+        dialog.setResizable(false);
+        dialog.initStyle(StageStyle.TRANSPARENT); // For rounded corners
+
+        VBox root = new VBox(20);
+        root.setPadding(new Insets(25));
+        root.setAlignment(Pos.CENTER);
+        root.setStyle("-fx-background-color: white; " +
+                     "-fx-background-radius: 20; " +
+                     "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 10, 0, 0, 2);");
+
+        Label messageLabel = new Label(opponent + " thách đấu bạn. Chấp nhận?");
+        messageLabel.setWrapText(true);
+        messageLabel.setStyle("-fx-font-size: 15px; " +
+                            "-fx-text-fill: #333; " +
+                            "-fx-font-weight: bold; " +
+                            "-fx-alignment: center;");
+        messageLabel.setMaxWidth(350);
+
+        HBox buttonBox = new HBox(15);
+        buttonBox.setAlignment(Pos.CENTER);
+
+        Button yesButton = new Button("Có");
+        yesButton.setStyle("-fx-background-color: #2d5016; " +
+                         "-fx-background-radius: 15; " +
+                         "-fx-text-fill: white; " +
+                         "-fx-font-size: 14px; " +
+                         "-fx-font-weight: bold; " +
+                         "-fx-pref-width: 100; " +
+                         "-fx-pref-height: 35; " +
+                         "-fx-cursor: hand;");
+        yesButton.setOnMouseEntered(e -> yesButton.setStyle(
+            "-fx-background-color: #3a6b1f; " +
+            "-fx-background-radius: 15; " +
+            "-fx-text-fill: white; " +
+            "-fx-font-size: 14px; " +
+            "-fx-font-weight: bold; " +
+            "-fx-pref-width: 100; " +
+            "-fx-pref-height: 35; " +
+            "-fx-cursor: hand;"));
+        yesButton.setOnMouseExited(e -> yesButton.setStyle(
+            "-fx-background-color: #2d5016; " +
+            "-fx-background-radius: 15; " +
+            "-fx-text-fill: white; " +
+            "-fx-font-size: 14px; " +
+            "-fx-font-weight: bold; " +
+            "-fx-pref-width: 100; " +
+            "-fx-pref-height: 35; " +
+            "-fx-cursor: hand;"));
+        yesButton.setOnAction(e -> {
+            dialog.close();
+            respondInvite(opponent, true);
+        });
+
+        Button noButton = new Button("Không");
+        noButton.setStyle("-fx-background-color: #666; " +
+                         "-fx-background-radius: 15; " +
+                         "-fx-text-fill: white; " +
+                         "-fx-font-size: 14px; " +
+                         "-fx-font-weight: bold; " +
+                         "-fx-pref-width: 100; " +
+                         "-fx-pref-height: 35; " +
+                         "-fx-cursor: hand;");
+        noButton.setOnMouseEntered(e -> noButton.setStyle(
+            "-fx-background-color: #777; " +
+            "-fx-background-radius: 15; " +
+            "-fx-text-fill: white; " +
+            "-fx-font-size: 14px; " +
+            "-fx-font-weight: bold; " +
+            "-fx-pref-width: 100; " +
+            "-fx-pref-height: 35; " +
+            "-fx-cursor: hand;"));
+        noButton.setOnMouseExited(e -> noButton.setStyle(
+            "-fx-background-color: #666; " +
+            "-fx-background-radius: 15; " +
+            "-fx-text-fill: white; " +
+            "-fx-font-size: 14px; " +
+            "-fx-font-weight: bold; " +
+            "-fx-pref-width: 100; " +
+            "-fx-pref-height: 35; " +
+            "-fx-cursor: hand;"));
+        noButton.setOnAction(e -> {
+            dialog.close();
+            respondInvite(opponent, false);
+        });
+
+        buttonBox.getChildren().addAll(yesButton, noButton);
+        root.getChildren().addAll(messageLabel, buttonBox);
+
+        Scene scene = new Scene(root);
+        scene.setFill(null); // Transparent background
+        dialog.setScene(scene);
+
+        // Center dialog relative to lobby window
+        dialog.setOnShown(evt -> {
+            Stage dialogStage = (Stage) dialog.getScene().getWindow();
+            double dialogWidth = dialogStage.getWidth();
+            double dialogHeight = dialogStage.getHeight();
+            double lobbyX = this.getX();
+            double lobbyY = this.getY();
+            double lobbyWidth = this.getWidth();
+            double lobbyHeight = this.getHeight();
+            
+            dialogStage.setX(lobbyX + (lobbyWidth - dialogWidth) / 2);
+            dialogStage.setY(lobbyY + (lobbyHeight - dialogHeight) / 2);
+        });
+
+        dialog.showAndWait();
     }
 
     private void showCompetitiveMatchDialog() {
@@ -209,21 +442,15 @@ public class LobbyFrame extends Stage {
         btnChallenge.setOnAction(e -> {
             String selected = dialogList.getSelectionModel().getSelectedItem();
             if (selected == null || selected.isEmpty()) {
-                Alert alert = new Alert(Alert.AlertType.WARNING);
-                alert.setTitle("Cảnh báo");
-                alert.setHeaderText("Vui lòng chọn một người chơi để thách đấu.");
-                alert.showAndWait();
+                showCustomAlert("Cảnh báo", "Vui lòng chọn một người chơi để thách đấu.", Alert.AlertType.WARNING);
                 return;
             }
             if (selected.equals(username)) {
-                Alert alert = new Alert(Alert.AlertType.WARNING);
-                alert.setTitle("Cảnh báo");
-                alert.setHeaderText("Bạn không thể thách đấu chính mình.");
-                alert.showAndWait();
+                showCustomAlert("Cảnh báo", "Bạn không thể thách đấu chính mình.", Alert.AlertType.WARNING);
                 return;
             }
-            dialog.close();
-            sendInvite(selected);
+            // Don't close dialog immediately - wait for invite result
+            sendInvite(selected, dialog);
         });
 
         Button btnCancel = new Button("Hủy");
@@ -274,11 +501,11 @@ public class LobbyFrame extends Stage {
                                 String resp = client.sendCommand("WHO");
                                 Platform.runLater(() -> {
                                     if (resp != null && resp.toUpperCase().startsWith("ONLINE;")) {
-                                        String list = resp.substring("ONLINE;".length());
-                                        List<String> users = Arrays.stream(list.split(","))
-                                                .map(String::trim).filter(s -> !s.isEmpty())
+                    String list = resp.substring("ONLINE;".length());
+                    List<String> users = Arrays.stream(list.split(","))
+                            .map(String::trim).filter(s -> !s.isEmpty())
                                                 .filter(s -> !s.equals(username)) // Exclude self
-                                                .collect(Collectors.toList());
+                            .collect(Collectors.toList());
                                         lstOnline.getItems().clear();
                                         lstOnline.getItems().addAll(users);
                                     }
@@ -286,8 +513,8 @@ public class LobbyFrame extends Stage {
                             } catch (Exception ex) {
                                 // Silent error handling
                             }
-                            return null;
-                        }
+                return null;
+            }
                     };
                 }
             };
@@ -306,8 +533,8 @@ public class LobbyFrame extends Stage {
                             try {
                                 return client.sendCommand("POLL");
                             } catch (Exception ex) {
-                                return null;
-                            }
+                return null;
+            }
                         }
                     };
                 }
@@ -322,19 +549,20 @@ public class LobbyFrame extends Stage {
                 if (up.startsWith("INVITE_FROM;")) {
                     String from = resp.substring("INVITE_FROM;".length());
                     Platform.runLater(() -> {
-                        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-                        alert.setTitle("Thách đấu");
-                        alert.setHeaderText(from + " thách đấu bạn. Chấp nhận?");
-                        alert.getButtonTypes().setAll(ButtonType.YES, ButtonType.NO);
-                        alert.showAndWait().ifPresent(result -> {
-                            respondInvite(from, result == ButtonType.YES);
-                        });
+                        showChallengeDialog(from);
                     });
                 } else if (up.startsWith("INVITE_RESULT;")) {
                     String[] p = resp.split(";", 3);
                     String who = (p.length > 1) ? p[1] : "?";
                     String result = (p.length > 2) ? p[2] : "";
                     event("Lời thách đấu của bạn đến " + who + ": " + result);
+                    
+                    // Only show alert if rejected
+                    if (result.toUpperCase().contains("REJECT") || result.toUpperCase().contains("TỪ CHỐI")) {
+                        Platform.runLater(() -> {
+                            showCustomAlert("Thông báo", who + " đã từ chối lời thách đấu của bạn.", Alert.AlertType.WARNING);
+                        });
+                    }
                 } else if (up.startsWith("START_MATCH;")) {
                     String opp = resp.substring("START_MATCH;".length());
                     event("Trận đấu bắt đầu với " + opp + "!");
@@ -387,23 +615,18 @@ public class LobbyFrame extends Stage {
     }
 
     /* ================== Invite / Challenge ================== */
-    private void sendInvite(String to) {
+    private void sendInvite(String to, Stage dialogToClose) {
         if (to == null || to.isEmpty()) {
-            Alert alert = new Alert(Alert.AlertType.WARNING);
-            alert.setHeaderText("Vui lòng chọn một người chơi để thách đấu.");
-            alert.showAndWait();
+            showCustomAlert("Cảnh báo", "Vui lòng chọn một người chơi để thách đấu.", Alert.AlertType.WARNING);
             return;
         }
         if (to.equals(username)) {
-            Alert alert = new Alert(Alert.AlertType.WARNING);
-            alert.setHeaderText("Bạn không thể thách đấu chính mình.");
-            alert.showAndWait();
+            showCustomAlert("Cảnh báo", "Bạn không thể thách đấu chính mình.", Alert.AlertType.WARNING);
             return;
         }
         if (client == null) {
-            Alert alert = new Alert(Alert.AlertType.WARNING);
-            alert.setHeaderText("Không kết nối được.");
-            alert.showAndWait();
+            showCustomAlert("Lỗi", "Không kết nối được.", Alert.AlertType.ERROR);
+            if (dialogToClose != null) dialogToClose.close();
             return;
         }
 
@@ -421,16 +644,13 @@ public class LobbyFrame extends Stage {
         task.setOnSucceeded(e -> {
             String resp = task.getValue();
             if (resp != null && resp.startsWith("INVITE_SENT")) {
+                // No alert when invite is sent successfully - wait for response
                 event("Bạn đã gửi lời thách đấu đến " + to + ".");
-                Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                alert.setTitle("Thành công");
-                alert.setHeaderText("Đã gửi lời thách đấu đến " + to);
-                alert.showAndWait();
+                // Don't close dialog - let user send more invites if needed
             } else {
-                Alert alert = new Alert(Alert.AlertType.ERROR);
-                alert.setTitle("Lỗi");
-                alert.setHeaderText("Gửi lời thách đấu thất bại: " + (resp == null ? "Không có phản hồi" : resp));
-                alert.showAndWait();
+                // Only show error if sending failed
+                showCustomAlert("Lỗi", "Gửi lời thách đấu thất bại: " + (resp == null ? "Không có phản hồi" : resp), Alert.AlertType.ERROR);
+                // Don't close dialog on error, let user try again
             }
         });
 
@@ -452,9 +672,9 @@ public class LobbyFrame extends Stage {
 
         task.setOnSucceeded(e -> {
             String resp = task.getValue();
-            if (resp != null && resp.startsWith("RESPOND_OK")) {
+                if (resp != null && resp.startsWith("RESPOND_OK")) {
                 event("Bạn đã " + (accept ? "chấp nhận" : "từ chối") + " lời thách đấu từ " + opponent + ".");
-            } else {
+                } else {
                 event("Phản hồi thất bại: " + (resp == null ? "Không có phản hồi" : resp));
             }
         });
@@ -467,6 +687,7 @@ public class LobbyFrame extends Stage {
         confirmAlert.setTitle("Xác nhận");
         confirmAlert.setHeaderText("Bạn có chắc muốn thoát game?");
         confirmAlert.getButtonTypes().setAll(ButtonType.YES, ButtonType.NO);
+        centerAlertOnLobby(confirmAlert);
         confirmAlert.showAndWait().ifPresent(result -> {
             if (result == ButtonType.YES) {
                 stopPolling();
