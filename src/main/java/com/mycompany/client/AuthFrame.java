@@ -410,8 +410,10 @@ public class AuthFrame extends Stage {
                 final String userVal = user;
 
                 Platform.runLater(() -> {
+                    // Don't close client here - LobbyFrame needs it
+                    // Just create lobby and close auth frame
                     new LobbyFrame(userVal, hostVal, portVal, client).show();
-                    client = null;
+                    // Don't set client = null here, let LobbyFrame manage it
                     close();
                 });
             } else {

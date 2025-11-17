@@ -24,3 +24,13 @@ lion,Sư tử,ANIMAL,/sounds/game/animal/lion.wav
 monkey,Khỉ,ANIMAL,/sounds/game/animal/monkey.wav
 pig,Heo,ANIMAL,/sounds/game/animal/pig.wav
 sheep,Cừu,ANIMAL,/sounds/game/animal/sheep.wav
+wolf,Sói,ANIMAL,/sounds/game/animal/wolf.wav
+ambulance,Xe cứu thương,VEHICLE,/sounds/game/vehicle/ambulence.wav
+bicycle_bell,Chuông xe đạp,VEHICLE,/sounds/game/vehicle/bicycle_bell.wav
+car,Ô tô,VEHICLE,/sounds/game/vehicle/car.wav
+firetruck,Xe cứu hỏa,VEHICLE,/sounds/game/vehicle/firetruck.wav
+helicopter,Máy bay trực thăng,VEHICLE,/sounds/game/vehicle/helicopterraw.wav
+police_car,Xe cảnh sát,VEHICLE,/sounds/game/vehicle/police_car.wav
+ship,Tàu thủy,VEHICLE,/sounds/game/vehicle/ship.wav
+train,Tàu hỏa,VEHICLE,/sounds/game/vehicle/train.wav
+truck,Xe tải,VEHICLE,/sounds/game/vehicle/truck.wav

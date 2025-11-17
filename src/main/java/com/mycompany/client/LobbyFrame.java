@@ -146,7 +146,13 @@ public class LobbyFrame extends Stage {
         btnPractice.setStyle(buttonStyle);
         btnPractice.setOnMouseEntered(e -> btnPractice.setStyle(buttonHoverStyle));
         btnPractice.setOnMouseExited(e -> btnPractice.setStyle(buttonStyle));
-        btnPractice.setOnAction(e -> new PracticeFrame().show());
+        btnPractice.setOnAction(e -> {
+            // Hide lobby when opening practice (don't close, just hide)
+            hide();
+            // Pass reference to this lobby window
+            PracticeFrame practiceFrame = new PracticeFrame(this);
+            practiceFrame.show();
+        });
 
         // Bảng xếp hạng
         Button btnLeaderboard = new Button("Bảng xếp hạng");
