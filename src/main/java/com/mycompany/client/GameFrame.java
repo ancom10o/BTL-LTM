@@ -219,105 +219,118 @@ public class GameFrame extends Stage {
     }
     
     private void startResultPolling() {
-        resultPollingService = new ScheduledService<Void>() {
-            @Override
-            protected Task<Void> createTask() {
-                return new Task<Void>() {
-                    @Override
-                    protected Void call() {
-                        try {
-                            String resp = client.sendCommand("POLL");
-                            if (resp != null && !resp.equals("NO_EVENT")) {
-                                Platform.runLater(() -> handleServerMessage(resp));
+    resultPollingService = new ScheduledService<Void>() {
+        @Override
+        protected Task<Void> createTask() {
+            return new Task<Void>() {
+                @Override
+                protected Void call() {
+                    try {
+                        String resp = client.sendCommand("POLL");
+
+                        // Log raw để xem mỗi lần poll về cái gì
+                        System.out.println("[POLL-CLIENT][" + username + "] resp = " + resp);
+
+                        if (resp != null && !resp.trim().isEmpty() && !resp.trim().equals("NO_EVENT")) {
+                            // Nếu server có trả nhiều message trên nhiều dòng thì tách ra
+                            String[] messages = resp.split("\\r?\\n");
+                            for (String msg : messages) {
+                                String trimmed = msg.trim();
+                                if (!trimmed.isEmpty()) {
+                                    Platform.runLater(() -> handleServerMessage(trimmed));
+                                }
                             }
-                        } catch (Exception e) {
-                            System.err.println("[GAME] Polling error: " + e.getMessage());
                         }
-                        return null;
+                    } catch (Exception e) {
+                        System.err.println("[GAME] Polling error for " + username + ": " + e.getMessage());
+                        e.printStackTrace();
                     }
-                };
-            }
-        };
-        resultPollingService.setPeriod(javafx.util.Duration.seconds(0.5)); // Poll mỗi 0.5s
-        resultPollingService.start();
-    }
+                    return null;
+                }
+            };
+        }
+    };
+    resultPollingService.setPeriod(javafx.util.Duration.seconds(0.5)); // Poll mỗi 0.5s
+    resultPollingService.start();
+}
+
     
     private void handleServerMessage(String message) {
-        System.out.println("[GAME] Received message from server: " + message);
-        if (message.startsWith("RESULT;")) {
-            // FORMAT: RESULT;matchKey;round;p1Score;p2Score;p1Correct;p2Correct;p1TimeMs;p2TimeMs
-            String[] parts = message.split(";");
-            System.out.println("[GAME] Parsing RESULT message, parts.length=" + parts.length);
-            if (parts.length >= 9) {
-                try {
-                    int round = Integer.parseInt(parts[2]);
-                    int p1Score = Integer.parseInt(parts[3]);
-                    int p2Score = Integer.parseInt(parts[4]);
-                    boolean p1Correct = parts[5].equals("1");
-                    boolean p2Correct = parts[6].equals("1");
-                    long p1TimeMs = Long.parseLong(parts[7]);
-                    long p2TimeMs = Long.parseLong(parts[8]);
-                    
-                    System.out.println("[GAME] RESULT parsed: round=" + round + 
-                                     ", p1Score=" + p1Score + ", p2Score=" + p2Score);
-                    
-                    // Xác định player1 và player2 từ matchKey
-                    String player1, player2;
-                    if (username.compareToIgnoreCase(opponent) < 0) {
-                        player1 = username;
-                        player2 = opponent;
-                    } else {
-                        player1 = opponent;
-                        player2 = username;
-                    }
-                    
-                    // Lưu kết quả từ server
-                    serverResult = new ServerRoundResult(
-                        round, player1, player2, 
-                        p1Score, p2Score, p1Correct, p2Correct,
-                        p1TimeMs, p2TimeMs
-                    );
-                    
-                    System.out.println("[GAME] ServerResult saved for round " + round + 
-                                     ", currentRound=" + currentRound + 
-                                     ", currentPhase=" + currentPhase);
-                    
-                    // Cập nhật điểm số
-                    if (username.equals(player1)) {
-                        myScore += p1Score;
-                        opponentScore += p2Score;
-                    } else {
-                        myScore += p2Score;
-                        opponentScore += p1Score;
-                    }
-                    
-                    // Cập nhật UI
-                    Platform.runLater(() -> {
-                        lblScore1.setText(username + ": " + myScore);
-                        lblScore2.setText(opponent + ": " + opponentScore);
-                    });
-                    
-                    System.out.println("[GAME] Round " + round + " result received: " + username + "=" + 
-                                     (username.equals(player1) ? p1Score : p2Score) + 
-                                     ", " + opponent + "=" + 
-                                     (opponent.equals(player1) ? p1Score : p2Score));
-                    
-                    // Nếu đang ở RESULT_PHASE và round khớp, hiển thị dialog ngay
-                    if (currentPhase == GamePhase.RESULT_PHASE && round == currentRound) {
-                        System.out.println("[GAME] In RESULT_PHASE, showing dialog immediately");
-                        Platform.runLater(() -> {
-                            showResultDialog();
-                        });
-                    }
-                } catch (Exception e) {
-                    System.err.println("[GAME] Error parsing RESULT message: " + e.getMessage());
-                    e.printStackTrace();
+    System.out.println("[GAME] Received message from server: " + message);
+    
+    if (message.startsWith("RESULT;")) {
+        // FORMAT: RESULT;matchKey;round;p1Score;p2Score;p1Correct;p2Correct;p1TimeMs;p2TimeMs
+        String[] parts = message.split(";");
+        System.out.println("[GAME] Parsing RESULT message, parts.length=" + parts.length);
+        
+        if (parts.length >= 9) {
+            try {
+                int round = Integer.parseInt(parts[2]);
+                int p1Score = Integer.parseInt(parts[3]);
+                int p2Score = Integer.parseInt(parts[4]);
+                boolean p1Correct = parts[5].equals("1");
+                boolean p2Correct = parts[6].equals("1");
+                long p1TimeMs = Long.parseLong(parts[7]);
+                long p2TimeMs = Long.parseLong(parts[8]);
+                
+                System.out.println("[GAME] RESULT parsed: round=" + round + 
+                                 ", p1Score=" + p1Score + ", p2Score=" + p2Score);
+                
+                // Xác định player1 và player2 từ matchKey
+                String player1, player2;
+                if (username.compareToIgnoreCase(opponent) < 0) {
+                    player1 = username;
+                    player2 = opponent;
+                } else {
+                    player1 = opponent;
+                    player2 = username;
                 }
-            } else {
-                System.err.println("[GAME] RESULT message has invalid length: " + parts.length);
+                
+                // Lưu kết quả từ server
+                serverResult = new ServerRoundResult(
+                    round, player1, player2, 
+                    p1Score, p2Score, p1Correct, p2Correct,
+                    p1TimeMs, p2TimeMs
+                );
+                
+                System.out.println("[GAME] ServerResult saved for round " + round + 
+                                 ", currentRound=" + currentRound + 
+                                 ", currentPhase=" + currentPhase);
+                
+                // Cập nhật điểm số (theo kết quả từ server)
+                if (username.equals(player1)) {
+                    myScore += p1Score;
+                    opponentScore += p2Score;
+                } else {
+                    myScore += p2Score;
+                    opponentScore += p1Score;
+                }
+                
+                // Cập nhật UI điểm số
+                Platform.runLater(() -> {
+                    lblScore1.setText(username + ": " + myScore);
+                    lblScore2.setText(opponent + ": " + opponentScore);
+                });
+                
+                System.out.println("[GAME] Round " + round + " result received: " + username + "=" + 
+                                 (username.equals(player1) ? p1Score : p2Score) + 
+                                 ", " + opponent + "=" + 
+                                 (opponent.equals(player1) ? p1Score : p2Score));
+                
+                // ❌ BỎ phần show dialog trực tiếp tại đây
+                // Việc hiển thị dialog sẽ do waitForServerResult() xử lý,
+                // để tránh gọi showResultDialog() 2 lần.
+                
+            } catch (Exception e) {
+                System.err.println("[GAME] Error parsing RESULT message: " + e.getMessage());
+                e.printStackTrace();
             }
+        } else {
+            System.err.println("[GAME] RESULT message has invalid length: " + parts.length);
         }
     }
+}
+
     
     // Class để lưu kết quả từ server
     private static class ServerRoundResult {
@@ -999,43 +1012,54 @@ public class GameFrame extends Stage {
         phaseNotificationLabel.setManaged(false);
     }
     
-    private void waitForServerResult() {
-        // KHÔNG reset flag ở đây - đã reset ở RESULT_PHASE case
-        
-        // Kiểm tra ngay xem đã có serverResult chưa
-        if (serverResult != null && serverResult.round == currentRound) {
-            System.out.println("[GAME] ServerResult already available, showing dialog immediately");
-            showResultDialog();
-            return;
-        }
-        
-        // Nếu chưa có, đợi tối đa 5 giây
-        int maxWaitTime = 5000; // 5 giây
-        int checkInterval = 200; // Kiểm tra mỗi 200ms
-        final int[] elapsed = {0}; // Dùng array để có thể modify trong lambda
-        
-        final javafx.animation.Timeline[] checkTimelineRef = new javafx.animation.Timeline[1];
-        checkTimelineRef[0] = new javafx.animation.Timeline(
-            new javafx.animation.KeyFrame(
-                javafx.util.Duration.millis(checkInterval),
-                e -> {
-                    elapsed[0] += checkInterval;
-                    if (serverResult != null && serverResult.round == currentRound) {
-                        // Đã nhận được RESULT
-                        System.out.println("[GAME] ServerResult received after " + elapsed[0] + "ms, showing dialog");
-                        showResultDialog();
-                        checkTimelineRef[0].stop();
-                    } else if (elapsed[0] >= maxWaitTime) {
-                        // Hết thời gian đợi, không hiển thị gì cả (chờ server)
-                        System.out.println("[GAME] Timeout waiting for ServerResult after " + elapsed[0] + "ms");
-                        checkTimelineRef[0].stop();
-                    }
-                }
-            )
-        );
-        checkTimelineRef[0].setCycleCount(javafx.animation.Animation.INDEFINITE);
-        checkTimelineRef[0].play();
+   private void waitForServerResult() {
+    // KHÔNG reset flag ở đây - đã reset ở RESULT_PHASE case
+
+    // 1. Kiểm tra ngay: nếu serverResult đã có sẵn cho round hiện tại thì show luôn
+    if (serverResult != null && serverResult.round == currentRound) {
+        System.out.println("[GAME] ServerResult already available, showing dialog immediately");
+        Platform.runLater(() -> showResultDialog());
+        return;
     }
+
+    // 2. Nếu chưa có, đợi tối đa 5 giây
+    int maxWaitTime = 5000;      // 5 giây
+    int checkInterval = 200;     // Kiểm tra mỗi 200ms
+    final int[] elapsed = {0};   // Dùng array để có thể modify trong lambda
+
+    final javafx.animation.Timeline[] checkTimelineRef = new javafx.animation.Timeline[1];
+    checkTimelineRef[0] = new javafx.animation.Timeline(
+        new javafx.animation.KeyFrame(
+            javafx.util.Duration.millis(checkInterval),
+            e -> {
+                elapsed[0] += checkInterval;
+
+                // Nếu trong lúc chờ đã nhận được RESULT cho round hiện tại
+                if (serverResult != null && serverResult.round == currentRound) {
+                    System.out.println("[GAME] ServerResult received after " + elapsed[0] + "ms, showing dialog");
+                    // DỪNG timeline để không chạy tiếp
+                    checkTimelineRef[0].stop();
+                    // Gọi dialog trên JavaFX thread
+                    Platform.runLater(() -> showResultDialog());
+                    return;
+                }
+
+                // Nếu hết thời gian đợi mà vẫn chưa có kết quả từ server
+                if (elapsed[0] >= maxWaitTime) {
+                    System.out.println("[GAME] Timeout waiting for ServerResult after " + elapsed[0] + "ms");
+                    // Dừng timeline
+                    checkTimelineRef[0].stop();
+                    // Hiện tại chỉ log, KHÔNG tự cộng điểm/finish round local.
+                    // Nếu sau này muốn xử lý UI lỗi mạng thì gọi thêm 1 dialog ở đây.
+                }
+            }
+        )
+    );
+
+    checkTimelineRef[0].setCycleCount(javafx.animation.Animation.INDEFINITE);
+    checkTimelineRef[0].play();
+}
+
     
     private void playQuestionSound() {
         // Dừng âm thanh cũ nếu có
