@@ -664,13 +664,33 @@ public class LobbyFrame extends Stage {
                             showCustomAlert("Thông báo", who + " đã từ chối lời thách đấu của bạn.", Alert.AlertType.WARNING);
                         });
                     }
-                } else if (up.startsWith("START_MATCH;")) {
-                    String opp = resp.substring("START_MATCH;".length());
-                    event("Trận đấu bắt đầu với " + opp + "!");
-                    Platform.runLater(() -> {
-                        new GameFrame(username, opp, client).show();
-                        close();
-                    });
+                } else if (up.startsWith("MATCH_START;")) {
+                    // FORMAT: MATCH_START;player1;player2;seed;startAtMs
+                    String[] parts = resp.split(";");
+                    if (parts.length >= 5) {
+                        String player1 = parts[1];
+                        String player2 = parts[2];
+                        long seed = Long.parseLong(parts[3]);
+                        long startAtMs = Long.parseLong(parts[4]);
+                        
+                        String local = username;
+                        String opponent;
+                        if (local.equalsIgnoreCase(player1)) {
+                            opponent = player2;
+                        } else if (local.equalsIgnoreCase(player2)) {
+                            opponent = player1;
+                        } else {
+                            // Không phải mình, bỏ qua
+                            return;
+                        }
+                        
+                        event("Trận đấu bắt đầu với " + opponent + "!");
+                        Platform.runLater(() -> {
+                            GameFrame gameFrame = new GameFrame(local, opponent, client, seed, startAtMs);
+                            gameFrame.show();
+                            close();
+                        });
+                    }
                 }
             });
         }

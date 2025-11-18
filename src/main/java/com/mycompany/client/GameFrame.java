@@ -39,11 +39,41 @@ public class GameFrame extends Stage {
     private final Button btnAnswer3 = new Button("Chó");
     private final Button btnAnswer4 = new Button("Trâu");
 
-    public GameFrame(String username, String opponent, AuthClient client) {
+    private final long seed;
+    private final long startAtMs;
+
+    // --- GAME STATE ---
+    private static final int TOTAL_ROUNDS = 10;
+
+    private enum GamePhase {
+        PREPARE_MATCH,      // 15s chuẩn bị chung
+        PREPARE_QUESTION,   // 5s: "Chuẩn bị cho câu X..."
+        SHOW_QUESTION,      // 5s: hiện câu hỏi + đáp án, chưa cho bấm
+        ANSWER_PHASE        // 10s: cho bấm đáp án (chưa gửi server)
+    }
+
+    private GamePhase currentPhase = GamePhase.PREPARE_MATCH;
+    private int currentRound = 0;
+
+    // Đếm ngược cho phase hiện tại (tính bằng giây)
+    private int phaseTimeLeft = 0;
+
+    // Timeline tick mỗi 1 giây để cập nhật lblTimer và chuyển phase
+    private javafx.animation.Timeline phaseTimeline;
+
+    // Question generator dùng seed để đảm bảo cả 2 client có cùng câu hỏi
+    private QuestionGenerator questionGenerator;
+
+    public GameFrame(String username, String opponent, AuthClient client, long seed, long startAtMs) {
         super();
         this.username = username;
         this.opponent = opponent;
         this.client = client;
+        this.seed = seed;
+        this.startAtMs = startAtMs;
+        
+        // Khởi tạo question generator với seed
+        this.questionGenerator = new QuestionGenerator(seed);
 
         setTitle("Match: " + username + " vs " + opponent);
         setResizable(true);
@@ -107,8 +137,148 @@ public class GameFrame extends Stage {
         setupAnswerButtons();
         
         setOnShown(e -> {
-            // Start game logic here later
+            // Đợi đến startAtMs để đồng bộ với server
+            long now = System.currentTimeMillis();
+            long delayMs = startAtMs - now;
+            if (delayMs < 0) delayMs = 0;
+            
+            System.out.println("[GAME] " + username + " scheduling match start in " + delayMs + " ms (seed=" + seed + ")");
+            
+            javafx.animation.Timeline syncTimeline = new javafx.animation.Timeline(
+                new javafx.animation.KeyFrame(
+                    javafx.util.Duration.millis(delayMs),
+                    ev -> startPhase(GamePhase.PREPARE_MATCH, 15)
+                )
+            );
+            syncTimeline.setCycleCount(1);
+            syncTimeline.play();
         });
+    }
+
+    private void startPhase(GamePhase phase, int durationSeconds) {
+        currentPhase = phase;
+        phaseTimeLeft = durationSeconds;
+
+        // Dừng timeline cũ nếu có
+        if (phaseTimeline != null) {
+            phaseTimeline.stop();
+        }
+
+        // Cập nhật UI đầu phase
+        switch (phase) {
+            case PREPARE_MATCH -> {
+                lblQuestionNumber.setText("Chuẩn bị vào trận...");
+                lblQuestion.setText("");
+                disableAnswerButtons();
+            }
+            case PREPARE_QUESTION -> {
+                currentRound++;
+                if (currentRound > TOTAL_ROUNDS) {
+                    // Hết vòng thì dừng timeline và hiển thị kết thúc
+                    System.out.println("[GAME] Done " + TOTAL_ROUNDS + " rounds (local only).");
+                    if (phaseTimeline != null) {
+                        phaseTimeline.stop();
+                    }
+                    lblQuestionNumber.setText("Trận đấu kết thúc!");
+                    lblQuestion.setText("Đã hoàn thành " + TOTAL_ROUNDS + " câu hỏi.");
+                    lblTimer.setText("0");
+                    disableAnswerButtons();
+                    return;
+                }
+                lblQuestionNumber.setText("Chuẩn bị cho câu " + currentRound + "...");
+                lblQuestion.setText("");
+                disableAnswerButtons();
+            }
+            case SHOW_QUESTION -> {
+                lblQuestionNumber.setText("Câu " + currentRound + ":");
+                
+                // Generate question cho round hiện tại
+                // Dùng seed + round để đảm bảo cả 2 client có cùng câu hỏi
+                QuestionGenerator.Question question = questionGenerator.generateQuestion(currentRound);
+                
+                lblQuestion.setText(question.getQuestionText());
+                
+                // Cập nhật text cho 4 buttons
+                String[] answers = question.getAnswers();
+                btnAnswer1.setText(answers[0]);
+                btnAnswer2.setText(answers[1]);
+                btnAnswer3.setText(answers[2]);
+                btnAnswer4.setText(answers[3]);
+                
+                // Lưu correctIndex để check đáp án sau
+                // (Sẽ dùng sau khi tích hợp server)
+                
+                // Giữ nguyên 4 button, chỉ chưa cho bấm
+                disableAnswerButtons();
+            }
+            case ANSWER_PHASE -> {
+                lblQuestionNumber.setText("Câu " + currentRound + ":");
+                // Cho phép bấm đáp án trong 10s, chưa gửi server
+                enableAnswerButtons();
+            }
+        }
+
+        // Cập nhật lblTimer lần đầu
+        lblTimer.setText(String.valueOf(phaseTimeLeft));
+
+        // Tạo timeline đếm ngược mỗi 1s
+        phaseTimeline = new javafx.animation.Timeline(
+                new javafx.animation.KeyFrame(javafx.util.Duration.seconds(1), ev -> {
+                    phaseTimeLeft--;
+                    if (phaseTimeLeft < 0) phaseTimeLeft = 0; // Đảm bảo không âm
+                    lblTimer.setText(String.valueOf(phaseTimeLeft));
+                })
+        );
+        phaseTimeline.setCycleCount(durationSeconds);
+        phaseTimeline.setOnFinished(e -> {
+            // Đảm bảo timer về 0 và gọi onPhaseFinished khi timeline kết thúc
+            phaseTimeLeft = 0;
+            lblTimer.setText("0");
+            onPhaseFinished();
+        });
+        phaseTimeline.play();
+    }
+
+    private void onPhaseFinished() {
+        if (phaseTimeline != null) {
+            phaseTimeline.stop();
+        }
+
+        switch (currentPhase) {
+            case PREPARE_MATCH -> {
+                // Sau 15s chuẩn bị trận -> chuẩn bị câu 1
+                startPhase(GamePhase.PREPARE_QUESTION, 5);
+            }
+            case PREPARE_QUESTION -> {
+                // Sau 5s chuẩn bị câu -> hiện câu + đáp án
+                startPhase(GamePhase.SHOW_QUESTION, 5);
+            }
+            case SHOW_QUESTION -> {
+                // Sau 5s show câu -> cho phép trả lời 10s
+                startPhase(GamePhase.ANSWER_PHASE, 10);
+            }
+            case ANSWER_PHASE -> {
+                // Sau 10s trả lời:
+                //  - Tạm thời chỉ in log, chưa gửi server
+                System.out.println("[GAME] Round " + currentRound + " finished locally.");
+                // Chuyển sang chuẩn bị câu tiếp theo
+                startPhase(GamePhase.PREPARE_QUESTION, 5);
+            }
+        }
+    }
+
+    private void enableAnswerButtons() {
+        btnAnswer1.setDisable(false);
+        btnAnswer2.setDisable(false);
+        btnAnswer3.setDisable(false);
+        btnAnswer4.setDisable(false);
+    }
+
+    private void disableAnswerButtons() {
+        btnAnswer1.setDisable(true);
+        btnAnswer2.setDisable(true);
+        btnAnswer3.setDisable(true);
+        btnAnswer4.setDisable(true);
     }
 
     private VBox buildMainContent() {
@@ -291,11 +461,11 @@ public class GameFrame extends Stage {
     }
 
     private void setupAnswerButtons() {
-        // Answer button actions - logic will be added later
-        btnAnswer1.setOnAction(e -> handleAnswer("Sư tử"));
-        btnAnswer2.setOnAction(e -> handleAnswer("Khỉ"));
-        btnAnswer3.setOnAction(e -> handleAnswer("Chó"));
-        btnAnswer4.setOnAction(e -> handleAnswer("Trâu"));
+        // Answer button actions - sẽ cập nhật text động trong SHOW_QUESTION phase
+        btnAnswer1.setOnAction(e -> handleAnswer(btnAnswer1.getText()));
+        btnAnswer2.setOnAction(e -> handleAnswer(btnAnswer2.getText()));
+        btnAnswer3.setOnAction(e -> handleAnswer(btnAnswer3.getText()));
+        btnAnswer4.setOnAction(e -> handleAnswer(btnAnswer4.getText()));
     }
 
     private void updateImageSize(ImageView imageView, Image image, Scene scene) {
@@ -314,8 +484,18 @@ public class GameFrame extends Stage {
     }
 
     private void handleAnswer(String answer) {
-        // Logic will be added later
-        System.out.println("Selected answer: " + answer);
+        // Chỉ cho phép trả lời trong ANSWER_PHASE
+        if (currentPhase != GamePhase.ANSWER_PHASE) {
+            System.out.println("[GAME] " + username + " không thể trả lời ở phase: " + currentPhase);
+            return;
+        }
+        
+        // Tạm thời chỉ in ra log, chưa gửi server
+        System.out.println("[GAME] " + username + " chọn: " + answer +
+                " (round " + currentRound + ", phase=" + currentPhase + ")");
+        
+        // Disable buttons sau khi chọn để tránh chọn lại
+        disableAnswerButtons();
     }
 
     private void showExitConfirmDialog() {
@@ -390,12 +570,15 @@ public class GameFrame extends Stage {
     }
 
     private void doLeave() {
-        // Optionally tell server later (e.g., SEND/LEAVE). For now just close.
+        if (phaseTimeline != null) {
+            phaseTimeline.stop();
+        }
         close();
     }
 
     private void handleClose(WindowEvent e) {
-        // Optionally show confirmation on window close
-        // For now just close
+        if (phaseTimeline != null) {
+            phaseTimeline.stop();
+        }
     }
 }

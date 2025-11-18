@@ -6,10 +6,14 @@ E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\client\GameFrame.java
 E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\client\LeaderboardFrame.java
 E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\client\LobbyFrame.java
 E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\client\PracticeFrame.java
+E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\client\QuestionGenerator.java
+E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\client\SoundEntry.java
+E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\client\SoundLoader.java
 E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\client\SoundManager.java
 E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\server\ClientHandler.java
 E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\server\Database.java
 E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\server\DbPool.java
 E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\server\LeaderboardEntry.java
 E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\server\MatchHistory.java
+E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\server\MatchState.java
 E:\BTL LTM\BTL-LTM\src\main\java\com\mycompany\server\Server.java

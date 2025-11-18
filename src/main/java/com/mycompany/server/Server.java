@@ -23,7 +23,6 @@ public class Server {
         System.out.println("Starting server on port " + port);
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("Server started successfully on port " + port);
             while (true) {
                 try {
                     Socket socket = serverSocket.accept();
