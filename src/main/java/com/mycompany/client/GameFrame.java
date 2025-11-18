@@ -12,6 +12,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
+import javafx.stage.StageStyle;
 import javafx.stage.WindowEvent;
 
 import java.io.InputStream;
@@ -49,11 +50,18 @@ public class GameFrame extends Stage {
         PREPARE_MATCH,      // 15s chuẩn bị chung
         PREPARE_QUESTION,   // 5s: "Chuẩn bị cho câu X..."
         SHOW_QUESTION,      // 5s: hiện câu hỏi + đáp án, chưa cho bấm
-        ANSWER_PHASE        // 10s: cho bấm đáp án (chưa gửi server)
+        ANSWER_PHASE,       // 10s: cho bấm đáp án (chưa gửi server)
+        RESULT_PHASE        // 5s: hiển thị kết quả
     }
 
     private GamePhase currentPhase = GamePhase.PREPARE_MATCH;
     private int currentRound = 0;
+    
+    // Lưu thông tin câu hỏi và đáp án hiện tại
+    private QuestionGenerator.Question currentQuestion = null;
+    private String selectedAnswer = null;
+    private long answerStartTime = 0;
+    private long answerEndTime = 0; // Thời điểm khi chọn đáp án
 
     // Đếm ngược cho phase hiện tại (tính bằng giây)
     private int phaseTimeLeft = 0;
@@ -63,6 +71,12 @@ public class GameFrame extends Stage {
 
     // Question generator dùng seed để đảm bảo cả 2 client có cùng câu hỏi
     private QuestionGenerator questionGenerator;
+    
+    // Phase notification label (hiển thị ở giữa màn hình)
+    private Label phaseNotificationLabel;
+    
+    // MediaPlayer cho âm thanh câu hỏi
+    private javafx.scene.media.MediaPlayer questionSoundPlayer;
 
     public GameFrame(String username, String opponent, AuthClient client, long seed, long startAtMs) {
         super();
@@ -74,6 +88,9 @@ public class GameFrame extends Stage {
         
         // Khởi tạo question generator với seed
         this.questionGenerator = new QuestionGenerator(seed);
+        
+        // Tắt background music khi vào match
+        SoundManager.getInstance().stopBackgroundMusic();
 
         setTitle("Match: " + username + " vs " + opponent);
         setResizable(true);
@@ -115,6 +132,21 @@ public class GameFrame extends Stage {
         root.getChildren().add(mainContent);
         root.setAlignment(Pos.CENTER);
         root.setStyle("-fx-background-color: transparent;");
+        
+        // Phase notification overlay (hiển thị bên dưới phần điểm)
+        phaseNotificationLabel = new Label();
+        phaseNotificationLabel.setFont(Font.font("Arial", FontWeight.BOLD, 24)); // 32 * 0.75 = 24
+        phaseNotificationLabel.setTextFill(Color.WHITE);
+        phaseNotificationLabel.setStyle("-fx-background-color: rgba(0, 0, 0, 0.7); " +
+                                      "-fx-background-radius: 11; " + // 15 * 0.75 = 11.25 ≈ 11
+                                      "-fx-padding: 15 30; " + // 20 * 0.75 = 15, 40 * 0.75 = 30
+                                      "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 8, 0, 0, 2);"); // Giảm effect
+        phaseNotificationLabel.setVisible(false);
+        phaseNotificationLabel.setManaged(false);
+        root.getChildren().add(phaseNotificationLabel);
+        // Đặt ở phía trên, bên dưới phần điểm (khoảng 120px từ top)
+        StackPane.setAlignment(phaseNotificationLabel, Pos.TOP_CENTER);
+        StackPane.setMargin(phaseNotificationLabel, new Insets(120, 0, 0, 0));
 
         Scene scene = new Scene(root, windowWidth, windowHeight);
         scene.setFill(null);
@@ -164,6 +196,9 @@ public class GameFrame extends Stage {
             phaseTimeline.stop();
         }
 
+        // Hiển thị thông báo phase ở giữa màn hình
+        showPhaseNotification(phase);
+        
         // Cập nhật UI đầu phase
         switch (phase) {
             case PREPARE_MATCH -> {
@@ -183,6 +218,7 @@ public class GameFrame extends Stage {
                     lblQuestion.setText("Đã hoàn thành " + TOTAL_ROUNDS + " câu hỏi.");
                     lblTimer.setText("0");
                     disableAnswerButtons();
+                    hidePhaseNotification();
                     return;
                 }
                 lblQuestionNumber.setText("Chuẩn bị cho câu " + currentRound + "...");
@@ -194,19 +230,22 @@ public class GameFrame extends Stage {
                 
                 // Generate question cho round hiện tại
                 // Dùng seed + round để đảm bảo cả 2 client có cùng câu hỏi
-                QuestionGenerator.Question question = questionGenerator.generateQuestion(currentRound);
+                currentQuestion = questionGenerator.generateQuestion(currentRound);
                 
-                lblQuestion.setText(question.getQuestionText());
+                lblQuestion.setText(currentQuestion.getQuestionText());
                 
                 // Cập nhật text cho 4 buttons
-                String[] answers = question.getAnswers();
+                String[] answers = currentQuestion.getAnswers();
                 btnAnswer1.setText(answers[0]);
                 btnAnswer2.setText(answers[1]);
                 btnAnswer3.setText(answers[2]);
                 btnAnswer4.setText(answers[3]);
                 
-                // Lưu correctIndex để check đáp án sau
-                // (Sẽ dùng sau khi tích hợp server)
+                // Reset button styles về mặc định
+                resetButtonStyles();
+                
+                // Reset selected answer
+                selectedAnswer = null;
                 
                 // Giữ nguyên 4 button, chỉ chưa cho bấm
                 disableAnswerButtons();
@@ -214,7 +253,16 @@ public class GameFrame extends Stage {
             case ANSWER_PHASE -> {
                 lblQuestionNumber.setText("Câu " + currentRound + ":");
                 // Cho phép bấm đáp án trong 10s, chưa gửi server
+                answerStartTime = System.currentTimeMillis();
                 enableAnswerButtons();
+                
+                // Phát âm thanh câu hỏi
+                playQuestionSound();
+            }
+            case RESULT_PHASE -> {
+                // Hiển thị kết quả trong dialog mới
+                showResultDialog();
+                disableAnswerButtons();
             }
         }
 
@@ -258,10 +306,16 @@ public class GameFrame extends Stage {
                 startPhase(GamePhase.ANSWER_PHASE, 10);
             }
             case ANSWER_PHASE -> {
-                // Sau 10s trả lời:
-                //  - Tạm thời chỉ in log, chưa gửi server
+                // Sau 10s trả lời: chuyển sang hiển thị kết quả
+                // Nếu chưa chọn đáp án, lưu thời điểm kết thúc phase
+                if (selectedAnswer == null) {
+                    answerEndTime = System.currentTimeMillis(); // Hết thời gian = không trả lời
+                }
+                startPhase(GamePhase.RESULT_PHASE, 5);
+            }
+            case RESULT_PHASE -> {
+                // Sau 5s hiển thị kết quả -> chuẩn bị câu tiếp theo
                 System.out.println("[GAME] Round " + currentRound + " finished locally.");
-                // Chuyển sang chuẩn bị câu tiếp theo
                 startPhase(GamePhase.PREPARE_QUESTION, 5);
             }
         }
@@ -490,12 +544,156 @@ public class GameFrame extends Stage {
             return;
         }
         
-        // Tạm thời chỉ in ra log, chưa gửi server
-        System.out.println("[GAME] " + username + " chọn: " + answer +
-                " (round " + currentRound + ", phase=" + currentPhase + ")");
+        // Lưu đáp án đã chọn (chỉ lưu lần đầu)
+        if (selectedAnswer == null) {
+            selectedAnswer = answer;
+            answerEndTime = System.currentTimeMillis(); // Lưu thời điểm chọn đáp án
+            long answerTime = answerEndTime - answerStartTime;
+            System.out.println("[GAME] " + username + " chọn: " + answer +
+                    " (round " + currentRound + ", time=" + (answerTime / 1000.0) + "s)");
+        }
         
         // Disable buttons sau khi chọn để tránh chọn lại
         disableAnswerButtons();
+    }
+    
+    private void showResultDialog() {
+        if (currentQuestion == null) {
+            return;
+        }
+        
+        // Tính thời gian trả lời (từ khi bắt đầu ANSWER_PHASE đến khi chọn đáp án hoặc hết phase)
+        long answerTimeMs = 0;
+        if (answerStartTime > 0 && answerEndTime > 0) {
+            // Tính từ start đến end (có thể là khi chọn đáp án hoặc khi hết phase)
+            answerTimeMs = answerEndTime - answerStartTime;
+        }
+        double answerTimeSeconds = answerTimeMs / 1000.0;
+        
+        // Xác định đáp án đúng
+        String[] answers = currentQuestion.getAnswers();
+        String correctAnswer = answers[currentQuestion.getCorrectIndex()];
+        boolean isCorrect = selectedAnswer != null && selectedAnswer.equals(correctAnswer);
+        
+        // Format: "test1(4,3s): Đúng" hoặc "test1(4,3s): Sai"
+        String resultText;
+        if (selectedAnswer == null) {
+            // Không trả lời = sai
+            String timeStr = String.format("%.1f", answerTimeSeconds).replace(".", ",");
+            resultText = username + "(" + timeStr + "s): Sai";
+        } else {
+            // Format thời gian: 4,3s (dùng dấu phẩy)
+            String timeStr = String.format("%.1f", answerTimeSeconds).replace(".", ",");
+            resultText = username + "(" + timeStr + "s): " + (isCorrect ? "Đúng" : "Sai");
+        }
+        
+        // Tô màu buttons trong game frame
+        // Đáp án đúng: màu xanh
+        Button correctButton = getButtonByText(correctAnswer);
+        if (correctButton != null) {
+            correctButton.setStyle("-fx-background-color: #4caf50; " + // Xanh lá
+                                 "-fx-background-radius: 15; " +
+                                 "-fx-text-fill: white; " +
+                                 "-fx-font-size: 18px; " +
+                                 "-fx-font-weight: bold; " +
+                                 "-fx-pref-width: 220; " +
+                                 "-fx-pref-height: 70; " +
+                                 "-fx-cursor: default;");
+        }
+        
+        // Đáp án đã chọn: xanh nếu đúng, đỏ nếu sai
+        if (selectedAnswer != null) {
+            Button selectedButton = getButtonByText(selectedAnswer);
+            if (selectedButton != null && !selectedAnswer.equals(correctAnswer)) {
+                selectedButton.setStyle("-fx-background-color: #f44336; " + // Đỏ
+                                       "-fx-background-radius: 15; " +
+                                       "-fx-text-fill: white; " +
+                                       "-fx-font-size: 18px; " +
+                                       "-fx-font-weight: bold; " +
+                                       "-fx-pref-width: 220; " +
+                                       "-fx-pref-height: 70; " +
+                                       "-fx-cursor: default;");
+            }
+        }
+        
+        // Tạo dialog mới để hiển thị kết quả
+        Stage resultDialog = new Stage();
+        resultDialog.initModality(Modality.APPLICATION_MODAL);
+        resultDialog.initOwner(this);
+        resultDialog.initStyle(StageStyle.TRANSPARENT); // Không có title bar
+        resultDialog.setResizable(false);
+        
+        VBox dialogRoot = new VBox(20);
+        dialogRoot.setPadding(new Insets(30));
+        dialogRoot.setAlignment(Pos.CENTER);
+        
+        // Màu nền dựa trên kết quả
+        String bgColor = isCorrect ? "#e8f5e9" : "#ffebee"; // Xanh nhạt nếu đúng, đỏ nhạt nếu sai
+        String textColor = isCorrect ? "#2e7d32" : "#c62828"; // Xanh đậm nếu đúng, đỏ đậm nếu sai
+        
+        dialogRoot.setStyle("-fx-background-color: " + bgColor + "; " +
+                           "-fx-background-radius: 20; " +
+                           "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 15, 0, 0, 5);");
+        
+        // Label hiển thị kết quả
+        Label resultLabel = new Label(resultText);
+        resultLabel.setFont(Font.font("Arial", FontWeight.BOLD, 24));
+        resultLabel.setTextFill(Color.web(textColor));
+        resultLabel.setStyle("-fx-padding: 20;");
+        
+        dialogRoot.getChildren().add(resultLabel);
+        
+        Scene dialogScene = new Scene(dialogRoot, 400, 150);
+        dialogScene.setFill(null); // Transparent scene
+        resultDialog.setScene(dialogScene);
+        
+        // Center dialog relative to game window
+        double dialogWidth = 400;
+        double dialogHeight = 150;
+        double gameX = this.getX();
+        double gameY = this.getY();
+        double gameWidth = this.getWidth();
+        double gameHeight = this.getHeight();
+        
+        resultDialog.setX(gameX + (gameWidth - dialogWidth) / 2);
+        resultDialog.setY(gameY + (gameHeight - dialogHeight) / 2);
+        
+        // Hiển thị dialog
+        resultDialog.show();
+        
+        // Tự đóng sau 5 giây
+        javafx.animation.Timeline closeTimeline = new javafx.animation.Timeline(
+            new javafx.animation.KeyFrame(
+                javafx.util.Duration.seconds(5),
+                e -> resultDialog.close()
+            )
+        );
+        closeTimeline.setCycleCount(1);
+        closeTimeline.play();
+    }
+    
+    private Button getButtonByText(String text) {
+        if (btnAnswer1.getText().equals(text)) return btnAnswer1;
+        if (btnAnswer2.getText().equals(text)) return btnAnswer2;
+        if (btnAnswer3.getText().equals(text)) return btnAnswer3;
+        if (btnAnswer4.getText().equals(text)) return btnAnswer4;
+        return null;
+    }
+    
+    private void resetButtonStyles() {
+        String buttonStyle = "-fx-background-color: rgba(220, 220, 220, 0.9); " +
+                           "-fx-background-radius: 15; " +
+                           "-fx-text-fill: black; " +
+                           "-fx-font-size: 18px; " +
+                           "-fx-font-weight: bold; " +
+                           "-fx-pref-width: 220; " +
+                           "-fx-pref-height: 70; " +
+                           "-fx-cursor: hand;";
+        
+        btnAnswer1.setStyle(buttonStyle);
+        btnAnswer2.setStyle(buttonStyle);
+        btnAnswer3.setStyle(buttonStyle);
+        btnAnswer4.setStyle(buttonStyle);
     }
 
     private void showExitConfirmDialog() {
@@ -573,6 +771,12 @@ public class GameFrame extends Stage {
         if (phaseTimeline != null) {
             phaseTimeline.stop();
         }
+        // Dừng âm thanh câu hỏi nếu đang phát
+        if (questionSoundPlayer != null) {
+            questionSoundPlayer.stop();
+            questionSoundPlayer.dispose();
+            questionSoundPlayer = null;
+        }
         close();
     }
 
@@ -580,5 +784,63 @@ public class GameFrame extends Stage {
         if (phaseTimeline != null) {
             phaseTimeline.stop();
         }
+        // Dừng âm thanh câu hỏi nếu đang phát
+        if (questionSoundPlayer != null) {
+            questionSoundPlayer.stop();
+            questionSoundPlayer.dispose();
+            questionSoundPlayer = null;
+        }
+    }
+    
+    private void showPhaseNotification(GamePhase phase) {
+        String phaseText = "";
+        switch (phase) {
+            case PREPARE_MATCH -> phaseText = "Chuẩn bị vào trận...";
+            case PREPARE_QUESTION -> phaseText = "Chuẩn bị cho câu " + (currentRound + 1) + "...";
+            case SHOW_QUESTION -> phaseText = "Câu hỏi " + currentRound;
+            case ANSWER_PHASE -> phaseText = "Trả lời câu hỏi";
+            case RESULT_PHASE -> phaseText = "Kết quả";
+        }
+        
+        phaseNotificationLabel.setText(phaseText);
+        phaseNotificationLabel.setVisible(true);
+        phaseNotificationLabel.setManaged(true);
+        
+        // Tự ẩn sau 2 giây
+        javafx.animation.Timeline hideTimeline = new javafx.animation.Timeline(
+            new javafx.animation.KeyFrame(
+                javafx.util.Duration.seconds(2),
+                e -> hidePhaseNotification()
+            )
+        );
+        hideTimeline.setCycleCount(1);
+        hideTimeline.play();
+    }
+    
+    private void hidePhaseNotification() {
+        phaseNotificationLabel.setVisible(false);
+        phaseNotificationLabel.setManaged(false);
+    }
+    
+    private void playQuestionSound() {
+        // Dừng âm thanh cũ nếu có
+        if (questionSoundPlayer != null) {
+            questionSoundPlayer.stop();
+            questionSoundPlayer.dispose();
+            questionSoundPlayer = null;
+        }
+        
+        if (currentQuestion == null || currentQuestion.getSound() == null) {
+            return;
+        }
+        
+        // Lấy đường dẫn file âm thanh từ SoundEntry
+        String audioFile = currentQuestion.getSound().getAudioFile();
+        if (audioFile == null || audioFile.isEmpty()) {
+            return;
+        }
+        
+        // Phát âm thanh qua SoundManager
+        questionSoundPlayer = SoundManager.getInstance().playSound(audioFile, 0.7);
     }
 }
