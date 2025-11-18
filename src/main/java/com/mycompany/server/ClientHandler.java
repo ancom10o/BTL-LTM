@@ -27,11 +27,13 @@ public class ClientHandler extends Thread {
                     line = line.trim();
                     if (line.isEmpty()) continue;
 
-                    String[] parts = line.split(";", 3);
+                    // Split với limit cao để lấy đủ các phần (ANSWER_RESULT có 6 phần)
+                    String[] parts = line.split(";", -1); // -1 để giữ lại tất cả các phần
                     String cmd = parts[0].trim().toUpperCase();
 
                     // Only log non-polling commands to reduce noise
                     if (!cmd.equals("POLL") && !cmd.equals("WHO")) {
+                        System.out.println("[ClientHandler] Received command: " + cmd + " from " + currentUser);
                     }
 
                     try {
@@ -52,15 +54,16 @@ public class ClientHandler extends Thread {
                             // --- NEW: thách đấu ---
                             case "INVITE"   -> handleInvite(parts, out);
                             case "RESPOND"  -> handleRespond(parts, out);
-                        case "POLL"     -> handlePoll(out);
+                            case "POLL"     -> handlePoll(out);
                         case "GET_HISTORY" -> handleGetHistory(parts, out);
                         case "GET_LEADERBOARD" -> handleGetLeaderboard(parts, out);
+                        case "ANSWER_RESULT" -> handleAnswerResult(parts, out);
 
                             case "LOGOUT"   -> { handleLogout(out); return; }
                             case "PING"     -> out.println("PONG");
                             case "EXIT"     -> { out.println("BYE"); return; }
                             
-                           case"ANSWER"  -> handleAnswer(parts, out);
+                           // case"ANSWER"  -> handleAnswer(parts, out); // Deprecated, use ANSWER_RESULT instead
                             default         -> out.println("ERROR;Unknown command");
                         }
                         out.flush(); // Ensure response is sent
@@ -101,8 +104,11 @@ public class ClientHandler extends Thread {
             }
         }
     }
+    
+    // Deprecated: Old ANSWER handler - replaced by ANSWER_RESULT
+    /*
     // ANSWER;opponent;roundNo;answerIndex;elapsedMs
-private void handleAnswer(String[] parts, PrintWriter out) {
+    private void handleAnswer(String[] parts, PrintWriter out) {
     if (currentUser == null) {
         out.println("ERROR;Unauthenticated");
         return;
@@ -185,7 +191,8 @@ private void calculateAndSendRoundResult(String matchKey, int roundNo,
     Server.box(player2).add(msg);
 
     System.out.println("[SERVER] Round " + roundNo + " | " + msg);
-}
+    }
+    */
 
 
     private void handleRegister(String[] parts, PrintWriter out) throws SQLException {
@@ -446,5 +453,167 @@ private void calculateAndSendRoundResult(String matchKey, int roundNo,
             currentUser = null;
         }
         out.println("LOGOUT_OK");
+    }
+    
+    // ANSWER_RESULT;matchKey;username;round;status;timeMs
+    private void handleAnswerResult(String[] parts, PrintWriter out) {
+        System.out.println("[ANSWER_RESULT] Starting handler, parts.length=" + parts.length + ", currentUser=" + currentUser);
+        
+        if (currentUser == null) {
+            System.err.println("[ANSWER_RESULT] Unauthenticated");
+            try {
+                out.println("ERROR;Unauthenticated");
+                out.flush();
+            } catch (Exception e) {
+                System.err.println("[ANSWER_RESULT] Failed to send error: " + e.getMessage());
+            }
+            return;
+        }
+        if (parts.length < 6) {
+            System.err.println("[ANSWER_RESULT] Invalid syntax, parts.length=" + parts.length);
+            try {
+                out.println("ERROR;Syntax: ANSWER_RESULT;matchKey;username;round;status;timeMs");
+                out.flush();
+            } catch (Exception e) {
+                System.err.println("[ANSWER_RESULT] Failed to send error: " + e.getMessage());
+            }
+            return;
+        }
+        
+        try {
+            String matchKey = parts[1].trim();
+            String username = parts[2].trim();
+            int round = Integer.parseInt(parts[3].trim());
+            String status = parts[4].trim().toUpperCase();
+            long timeMs = Long.parseLong(parts[5].trim());
+            
+            System.out.println("[ANSWER_RESULT] Received from " + currentUser + 
+                             " | matchKey=" + matchKey + ", round=" + round + 
+                             ", status=" + status + ", timeMs=" + timeMs);
+            
+            // Kiểm tra username có khớp với currentUser không
+            if (!username.equals(currentUser)) {
+                System.err.println("[ANSWER_RESULT] Username mismatch: " + username + " != " + currentUser);
+                out.println("ERROR;Username mismatch");
+                out.flush();
+                return;
+            }
+            
+            boolean isCorrect = status.equals("CORRECT");
+            
+            // Lấy hoặc tạo MatchState
+            MatchState matchState = Server.ACTIVE_MATCHES.computeIfAbsent(matchKey, k -> {
+                // Parse matchKey để lấy player1 và player2
+                // Format: player1_player2_seed
+                String[] keyParts = k.split("_");
+                if (keyParts.length < 3) {
+                    System.err.println("[ANSWER_RESULT] Invalid matchKey format: " + k);
+                    return null;
+                }
+                String player1 = keyParts[0];
+                String player2 = keyParts[1];
+                System.out.println("[ANSWER_RESULT] Created new MatchState: " + player1 + " vs " + player2);
+                return new MatchState(k, player1, player2);
+            });
+            
+            if (matchState == null) {
+                System.err.println("[ANSWER_RESULT] Failed to create/get MatchState for: " + matchKey);
+                out.println("ERROR;Invalid matchKey");
+                out.flush();
+                return;
+            }
+            
+            // Thêm đáp án
+            matchState.addAnswer(round, username, isCorrect, timeMs);
+            System.out.println("[ANSWER_RESULT] Added answer for " + username + 
+                             " | round=" + round + ", correct=" + isCorrect + ", time=" + timeMs + "ms");
+            
+            // Kiểm tra xem cả 2 player đã trả lời chưa
+            boolean bothAnswered = matchState.bothAnswered(round);
+            System.out.println("[ANSWER_RESULT] Both answered? " + bothAnswered + 
+                             " | P1=" + matchState.getPlayer1() + ", P2=" + matchState.getPlayer2() +
+                             " | Thread=" + Thread.currentThread().getName());
+            
+            if (bothAnswered) {
+                // Kiểm tra xem đã gửi RESULT cho round này chưa (tránh gửi 2 lần)
+                // Sử dụng synchronized để đảm bảo chỉ một thread có thể gửi RESULT
+                synchronized (matchState) {
+                    // Kiểm tra lại sau khi synchronized (double-check)
+                    if (!matchState.bothAnswered(round)) {
+                        System.out.println("[ANSWER_RESULT] Both answered check failed after sync, skipping");
+                        out.println("ANSWER_RESULT_OK");
+                        out.flush();
+                        return;
+                    }
+                    
+                    if (!matchState.markResultSent(round)) {
+                        // Đã gửi rồi, không gửi lại
+                        System.out.println("[ANSWER_RESULT] RESULT already sent for round " + round + ", skipping (Thread=" + Thread.currentThread().getName() + ")");
+                        out.println("ANSWER_RESULT_OK");
+                        out.flush();
+                        return;
+                    }
+                    
+                    // Tính điểm
+                    MatchState.RoundResult result = matchState.calculateResult(round);
+                    
+                    if (result == null) {
+                        System.err.println("[ANSWER_RESULT] Failed to calculate result for round " + round);
+                        // Không cần reset flag vì markResultSent đã set thành true
+                        // Nếu tính toán thất bại, vẫn giữ flag để không gửi lại
+                        out.println("ANSWER_RESULT_OK");
+                        out.flush();
+                        return;
+                    }
+                    
+                    // Gửi kết quả cho cả 2 player (chỉ gửi 1 lần)
+                    // FORMAT: RESULT;matchKey;round;p1Score;p2Score;p1Correct;p2Correct;p1TimeMs;p2TimeMs
+                    String resultMsg = "RESULT;" + matchKey + ";" + round + ";" + 
+                                     result.p1Score + ";" + result.p2Score + ";" + 
+                                     (result.p1Correct ? "1" : "0") + ";" + 
+                                     (result.p2Correct ? "1" : "0") + ";" +
+                                     result.p1TimeMs + ";" + result.p2TimeMs;
+                    
+                    Server.box(matchState.getPlayer1()).add(resultMsg);
+                    Server.box(matchState.getPlayer2()).add(resultMsg);
+                    
+                    System.out.println("[RESULT] Round " + round + " sent to " + matchState.getPlayer1() + 
+                                     " and " + matchState.getPlayer2() + 
+                                     " | P1=" + matchState.getPlayer1() + "(" + (result.p1TimeMs/1000.0) + "s): " + 
+                                     (result.p1Correct ? "Đúng" : "Sai") + " +" + result.p1Score + "đ" +
+                                     " | P2=" + matchState.getPlayer2() + "(" + (result.p2TimeMs/1000.0) + "s): " + 
+                                     (result.p2Correct ? "Đúng" : "Sai") + " +" + result.p2Score + "đ" +
+                                     " | Thread=" + Thread.currentThread().getName());
+                    
+                    // Xóa đáp án của round này để giải phóng memory
+                    matchState.clearRound(round);
+                }
+            } else {
+                System.out.println("[ANSWER_RESULT] Waiting for other player...");
+            }
+            
+            System.out.println("[ANSWER_RESULT] Sending ANSWER_RESULT_OK to " + currentUser);
+            out.println("ANSWER_RESULT_OK");
+            out.flush();
+            System.out.println("[ANSWER_RESULT] Response sent successfully to " + currentUser);
+        } catch (NumberFormatException e) {
+            System.err.println("[ANSWER_RESULT] NumberFormatException: " + e.getMessage());
+            e.printStackTrace();
+            try {
+                out.println("ERROR;Invalid number format");
+                out.flush();
+            } catch (Exception ex) {
+                System.err.println("[ANSWER_RESULT] Failed to send error: " + ex.getMessage());
+            }
+        } catch (Exception e) {
+            System.err.println("[ANSWER_RESULT] Error: " + e.getMessage());
+            e.printStackTrace();
+            try {
+                out.println("ERROR;Invalid parameters: " + e.getMessage());
+                out.flush();
+            } catch (Exception ex) {
+                System.err.println("[ANSWER_RESULT] Failed to send error: " + ex.getMessage());
+            }
+        }
     }
 }

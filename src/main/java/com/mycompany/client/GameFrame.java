@@ -14,6 +14,9 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.WindowEvent;
+import javafx.application.Platform;
+import javafx.concurrent.ScheduledService;
+import javafx.concurrent.Task;
 
 import java.io.InputStream;
 
@@ -42,6 +45,9 @@ public class GameFrame extends Stage {
 
     private final long seed;
     private final long startAtMs;
+    
+    // Match key để identify match trên server (dùng seed + player1 + player2)
+    private final String matchKey;
 
     // --- GAME STATE ---
     private static final int TOTAL_ROUNDS = 10;
@@ -77,6 +83,16 @@ public class GameFrame extends Stage {
     
     // MediaPlayer cho âm thanh câu hỏi
     private javafx.scene.media.MediaPlayer questionSoundPlayer;
+    
+    // Polling service để nhận RESULT từ server
+    private ScheduledService<Void> resultPollingService;
+    
+    // Điểm số hiện tại
+    private int myScore = 0;
+    private int opponentScore = 0;
+    
+    // Lưu kết quả từ server cho round hiện tại
+    private ServerRoundResult serverResult = null;
 
     public GameFrame(String username, String opponent, AuthClient client, long seed, long startAtMs) {
         super();
@@ -88,6 +104,18 @@ public class GameFrame extends Stage {
         
         // Khởi tạo question generator với seed
         this.questionGenerator = new QuestionGenerator(seed);
+        
+        // Tạo matchKey từ seed và player names (đảm bảo cả 2 client có cùng key)
+        // Sắp xếp player names theo alphabet để đảm bảo consistency
+        String player1, player2;
+        if (username.compareToIgnoreCase(opponent) < 0) {
+            player1 = username;
+            player2 = opponent;
+        } else {
+            player1 = opponent;
+            player2 = username;
+        }
+        this.matchKey = player1 + "_" + player2 + "_" + seed;
         
         // Tắt background music khi vào match
         SoundManager.getInstance().stopBackgroundMusic();
@@ -169,6 +197,9 @@ public class GameFrame extends Stage {
         setupAnswerButtons();
         
         setOnShown(e -> {
+            // Bắt đầu polling để nhận RESULT từ server
+            startResultPolling();
+            
             // Đợi đến startAtMs để đồng bộ với server
             long now = System.currentTimeMillis();
             long delayMs = startAtMs - now;
@@ -185,6 +216,130 @@ public class GameFrame extends Stage {
             syncTimeline.setCycleCount(1);
             syncTimeline.play();
         });
+    }
+    
+    private void startResultPolling() {
+        resultPollingService = new ScheduledService<Void>() {
+            @Override
+            protected Task<Void> createTask() {
+                return new Task<Void>() {
+                    @Override
+                    protected Void call() {
+                        try {
+                            String resp = client.sendCommand("POLL");
+                            if (resp != null && !resp.equals("NO_EVENT")) {
+                                Platform.runLater(() -> handleServerMessage(resp));
+                            }
+                        } catch (Exception e) {
+                            System.err.println("[GAME] Polling error: " + e.getMessage());
+                        }
+                        return null;
+                    }
+                };
+            }
+        };
+        resultPollingService.setPeriod(javafx.util.Duration.seconds(0.5)); // Poll mỗi 0.5s
+        resultPollingService.start();
+    }
+    
+    private void handleServerMessage(String message) {
+        System.out.println("[GAME] Received message from server: " + message);
+        if (message.startsWith("RESULT;")) {
+            // FORMAT: RESULT;matchKey;round;p1Score;p2Score;p1Correct;p2Correct;p1TimeMs;p2TimeMs
+            String[] parts = message.split(";");
+            System.out.println("[GAME] Parsing RESULT message, parts.length=" + parts.length);
+            if (parts.length >= 9) {
+                try {
+                    int round = Integer.parseInt(parts[2]);
+                    int p1Score = Integer.parseInt(parts[3]);
+                    int p2Score = Integer.parseInt(parts[4]);
+                    boolean p1Correct = parts[5].equals("1");
+                    boolean p2Correct = parts[6].equals("1");
+                    long p1TimeMs = Long.parseLong(parts[7]);
+                    long p2TimeMs = Long.parseLong(parts[8]);
+                    
+                    System.out.println("[GAME] RESULT parsed: round=" + round + 
+                                     ", p1Score=" + p1Score + ", p2Score=" + p2Score);
+                    
+                    // Xác định player1 và player2 từ matchKey
+                    String player1, player2;
+                    if (username.compareToIgnoreCase(opponent) < 0) {
+                        player1 = username;
+                        player2 = opponent;
+                    } else {
+                        player1 = opponent;
+                        player2 = username;
+                    }
+                    
+                    // Lưu kết quả từ server
+                    serverResult = new ServerRoundResult(
+                        round, player1, player2, 
+                        p1Score, p2Score, p1Correct, p2Correct,
+                        p1TimeMs, p2TimeMs
+                    );
+                    
+                    System.out.println("[GAME] ServerResult saved for round " + round + 
+                                     ", currentRound=" + currentRound + 
+                                     ", currentPhase=" + currentPhase);
+                    
+                    // Cập nhật điểm số
+                    if (username.equals(player1)) {
+                        myScore += p1Score;
+                        opponentScore += p2Score;
+                    } else {
+                        myScore += p2Score;
+                        opponentScore += p1Score;
+                    }
+                    
+                    // Cập nhật UI
+                    Platform.runLater(() -> {
+                        lblScore1.setText(username + ": " + myScore);
+                        lblScore2.setText(opponent + ": " + opponentScore);
+                    });
+                    
+                    System.out.println("[GAME] Round " + round + " result received: " + username + "=" + 
+                                     (username.equals(player1) ? p1Score : p2Score) + 
+                                     ", " + opponent + "=" + 
+                                     (opponent.equals(player1) ? p1Score : p2Score));
+                    
+                    // Nếu đang ở RESULT_PHASE và round khớp, hiển thị dialog ngay
+                    if (currentPhase == GamePhase.RESULT_PHASE && round == currentRound) {
+                        System.out.println("[GAME] In RESULT_PHASE, showing dialog immediately");
+                        Platform.runLater(() -> {
+                            showResultDialog();
+                        });
+                    }
+                } catch (Exception e) {
+                    System.err.println("[GAME] Error parsing RESULT message: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            } else {
+                System.err.println("[GAME] RESULT message has invalid length: " + parts.length);
+            }
+        }
+    }
+    
+    // Class để lưu kết quả từ server
+    private static class ServerRoundResult {
+        final int round;
+        final String player1, player2;
+        final int p1Score, p2Score;
+        final boolean p1Correct, p2Correct;
+        final long p1TimeMs, p2TimeMs;
+        
+        ServerRoundResult(int round, String player1, String player2,
+                         int p1Score, int p2Score, boolean p1Correct, boolean p2Correct,
+                         long p1TimeMs, long p2TimeMs) {
+            this.round = round;
+            this.player1 = player1;
+            this.player2 = player2;
+            this.p1Score = p1Score;
+            this.p2Score = p2Score;
+            this.p1Correct = p1Correct;
+            this.p2Correct = p2Correct;
+            this.p1TimeMs = p1TimeMs;
+            this.p2TimeMs = p2TimeMs;
+        }
     }
 
     private void startPhase(GamePhase phase, int durationSeconds) {
@@ -260,9 +415,10 @@ public class GameFrame extends Stage {
                 playQuestionSound();
             }
             case RESULT_PHASE -> {
-                // Hiển thị kết quả trong dialog mới
-                showResultDialog();
+                // Đợi để đảm bảo đã nhận được RESULT từ server
                 disableAnswerButtons();
+                // Đợi tối đa 5 giây để nhận RESULT, kiểm tra mỗi 200ms
+                waitForServerResult();
             }
         }
 
@@ -306,11 +462,14 @@ public class GameFrame extends Stage {
                 startPhase(GamePhase.ANSWER_PHASE, 10);
             }
             case ANSWER_PHASE -> {
-                // Sau 10s trả lời: chuyển sang hiển thị kết quả
-                // Nếu chưa chọn đáp án, lưu thời điểm kết thúc phase
+                // Sau 10s trả lời: gửi đáp án lên server
+                // Nếu chưa chọn đáp án, đảm bảo gửi với status WRONG và timeMs = 10000
                 if (selectedAnswer == null) {
                     answerEndTime = System.currentTimeMillis(); // Hết thời gian = không trả lời
+                    System.out.println("[GAME] No answer selected, will send WRONG with 10s");
                 }
+                // Gửi đáp án lên server (luôn luôn gửi, kể cả khi không trả lời)
+                sendAnswerToServer();
                 startPhase(GamePhase.RESULT_PHASE, 5);
             }
             case RESULT_PHASE -> {
@@ -562,30 +721,15 @@ public class GameFrame extends Stage {
             return;
         }
         
-        // Tính thời gian trả lời (từ khi bắt đầu ANSWER_PHASE đến khi chọn đáp án hoặc hết phase)
-        long answerTimeMs = 0;
-        if (answerStartTime > 0 && answerEndTime > 0) {
-            // Tính từ start đến end (có thể là khi chọn đáp án hoặc khi hết phase)
-            answerTimeMs = answerEndTime - answerStartTime;
+        // Chỉ hiển thị nếu có serverResult
+        if (serverResult == null || serverResult.round != currentRound) {
+            System.out.println("[GAME] No serverResult available for round " + currentRound + ", skipping dialog");
+            return;
         }
-        double answerTimeSeconds = answerTimeMs / 1000.0;
         
-        // Xác định đáp án đúng
+        // Xác định đáp án đúng để tô màu buttons
         String[] answers = currentQuestion.getAnswers();
         String correctAnswer = answers[currentQuestion.getCorrectIndex()];
-        boolean isCorrect = selectedAnswer != null && selectedAnswer.equals(correctAnswer);
-        
-        // Format: "test1(4,3s): Đúng" hoặc "test1(4,3s): Sai"
-        String resultText;
-        if (selectedAnswer == null) {
-            // Không trả lời = sai
-            String timeStr = String.format("%.1f", answerTimeSeconds).replace(".", ",");
-            resultText = username + "(" + timeStr + "s): Sai";
-        } else {
-            // Format thời gian: 4,3s (dùng dấu phẩy)
-            String timeStr = String.format("%.1f", answerTimeSeconds).replace(".", ",");
-            resultText = username + "(" + timeStr + "s): " + (isCorrect ? "Đúng" : "Sai");
-        }
         
         // Tô màu buttons trong game frame
         // Đáp án đúng: màu xanh
@@ -627,9 +771,35 @@ public class GameFrame extends Stage {
         dialogRoot.setPadding(new Insets(30));
         dialogRoot.setAlignment(Pos.CENTER);
         
-        // Màu nền dựa trên kết quả
-        String bgColor = isCorrect ? "#e8f5e9" : "#ffebee"; // Xanh nhạt nếu đúng, đỏ nhạt nếu sai
-        String textColor = isCorrect ? "#2e7d32" : "#c62828"; // Xanh đậm nếu đúng, đỏ đậm nếu sai
+        // Hiển thị kết quả từ server
+        double p1TimeSeconds = serverResult.p1TimeMs / 1000.0;
+        double p2TimeSeconds = serverResult.p2TimeMs / 1000.0;
+        
+        String p1TimeStr = String.format("%.0f", p1TimeSeconds).replace(".", ",");
+        String p2TimeStr = String.format("%.0f", p2TimeSeconds).replace(".", ",");
+        
+        // Tính điểm tổng hiện tại (sau khi đã cộng điểm round này)
+        int p1TotalScore = username.equals(serverResult.player1) ? myScore : opponentScore;
+        int p2TotalScore = username.equals(serverResult.player2) ? myScore : opponentScore;
+        
+        // Tạo text hiển thị
+        StringBuilder sb = new StringBuilder();
+        sb.append(serverResult.player1).append("(").append(p1TimeStr).append("s): ")
+          .append(serverResult.p1Correct ? "Đúng" : "Sai")
+          .append(" +").append(serverResult.p1Score).append(" điểm\n");
+        sb.append(serverResult.player2).append("(").append(p2TimeStr).append("s): ")
+          .append(serverResult.p2Correct ? "Đúng" : "Sai")
+          .append(" +").append(serverResult.p2Score).append(" điểm\n\n");
+        sb.append("Điểm hiện tại:\n");
+        sb.append(serverResult.player1).append(" = ").append(p1TotalScore).append("đ\n");
+        sb.append(serverResult.player2).append(" = ").append(p2TotalScore).append("đ");
+        
+        String resultText = sb.toString();
+        String bgColor = "#e8f5e9"; // Xanh nhạt
+        String textColor = "#2e7d32"; // Xanh đậm
+        
+        // Reset serverResult sau khi dùng
+        serverResult = null;
         
         dialogRoot.setStyle("-fx-background-color: " + bgColor + "; " +
                            "-fx-background-radius: 20; " +
@@ -637,19 +807,22 @@ public class GameFrame extends Stage {
         
         // Label hiển thị kết quả
         Label resultLabel = new Label(resultText);
-        resultLabel.setFont(Font.font("Arial", FontWeight.BOLD, 24));
+        resultLabel.setFont(Font.font("Arial", FontWeight.BOLD, 22));
         resultLabel.setTextFill(Color.web(textColor));
-        resultLabel.setStyle("-fx-padding: 20;");
+        resultLabel.setStyle("-fx-padding: 25;");
+        resultLabel.setWrapText(true);
+        resultLabel.setAlignment(Pos.CENTER);
         
         dialogRoot.getChildren().add(resultLabel);
         
-        Scene dialogScene = new Scene(dialogRoot, 400, 150);
+        // Tăng kích thước dialog
+        Scene dialogScene = new Scene(dialogRoot, 500, 250);
         dialogScene.setFill(null); // Transparent scene
         resultDialog.setScene(dialogScene);
         
         // Center dialog relative to game window
-        double dialogWidth = 400;
-        double dialogHeight = 150;
+        double dialogWidth = 500;
+        double dialogHeight = 250;
         double gameX = this.getX();
         double gameY = this.getY();
         double gameWidth = this.getWidth();
@@ -784,6 +957,10 @@ public class GameFrame extends Stage {
         if (phaseTimeline != null) {
             phaseTimeline.stop();
         }
+        // Dừng polling
+        if (resultPollingService != null) {
+            resultPollingService.cancel();
+        }
         // Dừng âm thanh câu hỏi nếu đang phát
         if (questionSoundPlayer != null) {
             questionSoundPlayer.stop();
@@ -822,6 +999,44 @@ public class GameFrame extends Stage {
         phaseNotificationLabel.setManaged(false);
     }
     
+    private void waitForServerResult() {
+        // KHÔNG reset flag ở đây - đã reset ở RESULT_PHASE case
+        
+        // Kiểm tra ngay xem đã có serverResult chưa
+        if (serverResult != null && serverResult.round == currentRound) {
+            System.out.println("[GAME] ServerResult already available, showing dialog immediately");
+            showResultDialog();
+            return;
+        }
+        
+        // Nếu chưa có, đợi tối đa 5 giây
+        int maxWaitTime = 5000; // 5 giây
+        int checkInterval = 200; // Kiểm tra mỗi 200ms
+        final int[] elapsed = {0}; // Dùng array để có thể modify trong lambda
+        
+        final javafx.animation.Timeline[] checkTimelineRef = new javafx.animation.Timeline[1];
+        checkTimelineRef[0] = new javafx.animation.Timeline(
+            new javafx.animation.KeyFrame(
+                javafx.util.Duration.millis(checkInterval),
+                e -> {
+                    elapsed[0] += checkInterval;
+                    if (serverResult != null && serverResult.round == currentRound) {
+                        // Đã nhận được RESULT
+                        System.out.println("[GAME] ServerResult received after " + elapsed[0] + "ms, showing dialog");
+                        showResultDialog();
+                        checkTimelineRef[0].stop();
+                    } else if (elapsed[0] >= maxWaitTime) {
+                        // Hết thời gian đợi, không hiển thị gì cả (chờ server)
+                        System.out.println("[GAME] Timeout waiting for ServerResult after " + elapsed[0] + "ms");
+                        checkTimelineRef[0].stop();
+                    }
+                }
+            )
+        );
+        checkTimelineRef[0].setCycleCount(javafx.animation.Animation.INDEFINITE);
+        checkTimelineRef[0].play();
+    }
+    
     private void playQuestionSound() {
         // Dừng âm thanh cũ nếu có
         if (questionSoundPlayer != null) {
@@ -842,5 +1057,48 @@ public class GameFrame extends Stage {
         
         // Phát âm thanh qua SoundManager
         questionSoundPlayer = SoundManager.getInstance().playSound(audioFile, 0.7);
+    }
+    
+    private void sendAnswerToServer() {
+        if (currentQuestion == null) {
+            System.err.println("[GAME] Cannot send answer: currentQuestion is null");
+            return;
+        }
+        
+        // Tính thời gian trả lời
+        long answerTimeMs = 0;
+        if (selectedAnswer == null) {
+            // Không trả lời: thời gian = 10 giây (tối đa)
+            answerTimeMs = 10000;
+            System.out.println("[GAME] No answer selected, using 10s as time");
+        } else if (answerStartTime > 0 && answerEndTime > 0) {
+            // Đã trả lời: tính từ start đến end
+            answerTimeMs = answerEndTime - answerStartTime;
+            if (answerTimeMs > 10000) {
+                answerTimeMs = 10000;
+            }
+        } else if (answerStartTime > 0) {
+            // Đã bắt đầu nhưng chưa có endTime (hết thời gian)
+            answerTimeMs = 10000;
+            System.out.println("[GAME] Answer phase ended without selection, using 10s");
+        }
+        
+        // Xác định đáp án đúng/sai
+        String[] answers = currentQuestion.getAnswers();
+        String correctAnswer = answers[currentQuestion.getCorrectIndex()];
+        boolean isCorrect = selectedAnswer != null && selectedAnswer.equals(correctAnswer);
+        String status = isCorrect ? "CORRECT" : "WRONG";
+        
+        // Gửi lên server: ANSWER_RESULT;matchKey;username;round;status;timeMs
+        try {
+            String command = "ANSWER_RESULT;" + matchKey + ";" + username + ";" + 
+                           currentRound + ";" + status + ";" + answerTimeMs;
+            System.out.println("[GAME] Sending answer to server: " + command);
+            String response = client.sendCommand(command);
+            System.out.println("[GAME] Server response: " + response);
+        } catch (Exception e) {
+            System.err.println("[GAME] Error sending answer to server: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 }

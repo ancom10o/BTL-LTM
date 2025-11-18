@@ -14,6 +14,9 @@ public class Server {
     public static ConcurrentLinkedQueue<String> box(String user) {
         return MAILBOX.computeIfAbsent(user, k -> new ConcurrentLinkedQueue<>());
     }
+    
+    // Lưu trữ trạng thái các match đang diễn ra
+    public static final ConcurrentHashMap<String, MatchState> ACTIVE_MATCHES = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
         DbPool.get();
