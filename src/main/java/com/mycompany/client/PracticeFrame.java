@@ -9,7 +9,6 @@ import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
-import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
@@ -114,12 +113,15 @@ public class PracticeFrame extends Stage {
         // Initialize UI
         initializeUI();
         
-        // Start first question
-        setOnShown(e -> startQuestion(0));
+        // Start first question and stop background music
+        setOnShown(e -> {
+            SoundManager.getInstance().stopBackgroundMusic();
+            startQuestion(0);
+        });
     }
     
     private void showLobbyAgain() {
-        // Show lobby again when practice is closed
+        // Show lobby again when practice is closed and resume background music
         javafx.application.Platform.runLater(() -> {
             if (lobbyWindow != null && lobbyWindow.isShowing() == false) {
                 // Use saved reference if available
@@ -137,6 +139,10 @@ public class PracticeFrame extends Stage {
                         }
                     }
                 }
+            }
+            // Resume background music when returning to lobby
+            if (SoundManager.getInstance().isSoundEnabled()) {
+                SoundManager.getInstance().playBackgroundMusic("/sounds/notification/back_ground.wav");
             }
         });
     }
@@ -631,31 +637,15 @@ public class PracticeFrame extends Stage {
     }
     
     private void playSound(String audioFile) {
-        try {
-            if (mediaPlayer != null) {
-                mediaPlayer.stop();
-                mediaPlayer.dispose();
-            }
-            
-            // JavaFX MediaPlayer needs a file:// URL, so we need to use the resource path
-            String resourcePath = audioFile.startsWith("/") ? audioFile : "/" + audioFile;
-            java.net.URL resourceUrl = getClass().getResource(resourcePath);
-            if (resourceUrl == null) {
-                System.err.println("Cannot find sound resource: " + resourcePath);
-                return;
-            }
-            
-            Media media = new Media(resourceUrl.toExternalForm());
-            mediaPlayer = new MediaPlayer(media);
-            mediaPlayer.setVolume(0.7);
-            mediaPlayer.setOnError(() -> {
-                System.err.println("MediaPlayer error: " + mediaPlayer.getError());
-            });
-            mediaPlayer.play();
-        } catch (Exception e) {
-            System.err.println("Error playing sound: " + e.getMessage());
-            e.printStackTrace();
+        // Stop previous sound if any
+        if (mediaPlayer != null) {
+            mediaPlayer.stop();
+            mediaPlayer.dispose();
+            mediaPlayer = null;
         }
+        
+        // Use SoundManager to play sound (will check if sound is enabled)
+        mediaPlayer = SoundManager.getInstance().playSound(audioFile, 0.7);
     }
     
     private void handleAnswer(String answer) {

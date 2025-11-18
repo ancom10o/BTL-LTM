@@ -10,8 +10,10 @@ import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
+import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
+import javafx.animation.ScaleTransition;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
@@ -82,6 +84,13 @@ public class LobbyFrame extends Stage {
         menuPanel.setPadding(new Insets(20));
 
         root.getChildren().add(menuPanel);
+        
+        // Add sound toggle button in top right corner
+        Button btnSoundToggle = createSoundToggleButton();
+        StackPane.setAlignment(btnSoundToggle, Pos.TOP_RIGHT);
+        StackPane.setMargin(btnSoundToggle, new Insets(15, 15, 0, 0));
+        root.getChildren().add(btnSoundToggle);
+        
         root.setAlignment(Pos.CENTER);
         root.setStyle("-fx-background-color: transparent;");
 
@@ -102,11 +111,92 @@ public class LobbyFrame extends Stage {
         
         centerOnScreen();
 
-        // Start polling
+        // Start polling and background music
         setOnShown(e -> {
             startPolling();
             refreshOnline();
+            SoundManager.getInstance().playBackgroundMusic("/sounds/notification/back_ground.wav");
         });
+    }
+    
+    private Button createSoundToggleButton() {
+        Button btn = new Button();
+        updateSoundButtonIcon(btn);
+        
+        // Base style
+        String baseStyle = "-fx-background-color: rgba(255, 255, 255, 0.7); " +
+                          "-fx-background-radius: 20; " +
+                          "-fx-pref-width: 40; " +
+                          "-fx-pref-height: 40; " +
+                          "-fx-font-size: 20px; " +
+                          "-fx-cursor: hand; " +
+                          "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.2), 5, 0, 0, 2);";
+        btn.setStyle(baseStyle);
+        
+        // Hover effect - brighter background and scale up
+        btn.setOnMouseEntered(e -> {
+            btn.setStyle("-fx-background-color: rgba(255, 255, 255, 0.9); " +
+                        "-fx-background-radius: 20; " +
+                        "-fx-pref-width: 40; " +
+                        "-fx-pref-height: 40; " +
+                        "-fx-font-size: 20px; " +
+                        "-fx-cursor: hand; " +
+                        "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.4), 8, 0, 0, 3);");
+            // Scale up animation
+            ScaleTransition scaleUp = new ScaleTransition(Duration.millis(150), btn);
+            scaleUp.setToX(1.15);
+            scaleUp.setToY(1.15);
+            scaleUp.play();
+        });
+        
+        // Mouse exit - return to normal
+        btn.setOnMouseExited(e -> {
+            btn.setStyle(baseStyle);
+            // Scale down animation
+            ScaleTransition scaleDown = new ScaleTransition(Duration.millis(150), btn);
+            scaleDown.setToX(1.0);
+            scaleDown.setToY(1.0);
+            scaleDown.play();
+        });
+        
+        // Click effect - scale down then up
+        btn.setOnMousePressed(e -> {
+            ScaleTransition scaleDown = new ScaleTransition(Duration.millis(100), btn);
+            scaleDown.setToX(0.9);
+            scaleDown.setToY(0.9);
+            scaleDown.play();
+        });
+        
+        btn.setOnMouseReleased(e -> {
+            ScaleTransition scaleUp = new ScaleTransition(Duration.millis(100), btn);
+            scaleUp.setToX(1.0);
+            scaleUp.setToY(1.0);
+            scaleUp.play();
+        });
+        
+        btn.setOnAction(e -> {
+            SoundManager soundManager = SoundManager.getInstance();
+            soundManager.setSoundEnabled(!soundManager.isSoundEnabled());
+            updateSoundButtonIcon(btn);
+            
+            // Click animation - bounce effect
+            ScaleTransition bounce = new ScaleTransition(Duration.millis(200), btn);
+            bounce.setToX(0.85);
+            bounce.setToY(0.85);
+            bounce.setAutoReverse(true);
+            bounce.setCycleCount(2);
+            bounce.play();
+        });
+        
+        return btn;
+    }
+    
+    private void updateSoundButtonIcon(Button btn) {
+        if (SoundManager.getInstance().isSoundEnabled()) {
+            btn.setText("🔊");
+        } else {
+            btn.setText("🔇");
+        }
     }
 
     private VBox buildMenuPanel() {
@@ -159,20 +249,25 @@ public class LobbyFrame extends Stage {
         btnLeaderboard.setStyle(buttonStyle);
         btnLeaderboard.setOnMouseEntered(e -> btnLeaderboard.setStyle(buttonHoverStyle));
         btnLeaderboard.setOnMouseExited(e -> btnLeaderboard.setStyle(buttonStyle));
-        btnLeaderboard.setOnAction(e -> new LeaderboardFrame().show());
+        btnLeaderboard.setOnAction(e -> {
+            LeaderboardFrame leaderboardFrame = new LeaderboardFrame(client, username);
+            // Center dialog relative to lobby window
+            double lobbyX = this.getX();
+            double lobbyY = this.getY();
+            double lobbyWidth = this.getWidth();
+            double lobbyHeight = this.getHeight();
+            double dialogWidth = 650;
+            double dialogHeight = 550;
+            leaderboardFrame.setX(lobbyX + (lobbyWidth - dialogWidth) / 2);
+            leaderboardFrame.setY(lobbyY + (lobbyHeight - dialogHeight) / 2);
+        });
 
         // Lịch sử đấu
         Button btnHistory = new Button("Lịch sử đấu");
         btnHistory.setStyle(buttonStyle);
         btnHistory.setOnMouseEntered(e -> btnHistory.setStyle(buttonHoverStyle));
         btnHistory.setOnMouseExited(e -> btnHistory.setStyle(buttonStyle));
-        btnHistory.setOnAction(e -> {
-            Alert alert = new Alert(Alert.AlertType.INFORMATION);
-            alert.setTitle("Lịch sử đấu");
-            alert.setHeaderText("Chức năng đang phát triển...");
-            centerAlertOnLobby(alert);
-            alert.showAndWait();
-        });
+        btnHistory.setOnAction(e -> showMatchHistory());
 
         // Thoát game
         Button btnExit = new Button("Thoát game");
@@ -716,7 +811,246 @@ public class LobbyFrame extends Stage {
         });
     }
 
+    private void showMatchHistory() {
+        if (client == null) {
+            showCustomAlert("Lỗi", "Không kết nối được đến server.", Alert.AlertType.ERROR);
+            return;
+        }
+
+        // Create dialog to show history - no title bar, rounded corners
+        Stage dialog = new Stage();
+        dialog.initModality(Modality.APPLICATION_MODAL);
+        dialog.initOwner(this);
+        dialog.initStyle(StageStyle.TRANSPARENT); // No title bar
+        dialog.setResizable(false);
+
+        VBox dialogRoot = new VBox(20);
+        dialogRoot.setPadding(new Insets(30));
+        dialogRoot.setStyle("-fx-background-color: white; " +
+                          "-fx-background-radius: 20; " +
+                          "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 15, 0, 0, 5);");
+
+        // Title
+        Label titleLabel = new Label("Lịch sử đấu");
+        titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 20));
+        titleLabel.setTextFill(Color.BLACK);
+        titleLabel.setStyle("-fx-padding: 0 0 10 0;");
+
+        // List to display matches - custom styled
+        ListView<String> historyList = new ListView<>();
+        historyList.setPrefHeight(400);
+        historyList.setPrefWidth(500);
+        historyList.setStyle("-fx-background-color: #fafafa; " +
+                           "-fx-background-radius: 12; " +
+                           "-fx-border-radius: 12; " +
+                           "-fx-border-color: #d0d0d0; " +
+                           "-fx-border-width: 2; " +
+                           "-fx-padding: 5;");
+        
+        // Custom cell factory for better styling with colors
+        historyList.setCellFactory(list -> new ListCell<String>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setStyle("");
+                } else {
+                    setText(item);
+                    setFont(Font.font("Arial", FontWeight.NORMAL, 13));
+                    
+                    // Determine color based on result
+                    String style = "-fx-padding: 12 15; " +
+                                  "-fx-background-color: white; " +
+                                  "-fx-background-radius: 8; " +
+                                  "-fx-border-radius: 8; " +
+                                  "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 3, 0, 0, 1);";
+                    
+                    if (item.contains("Thắng")) {
+                        style += "-fx-background-color: #e8f5e9; " + // Light green
+                                "-fx-text-fill: #2e7d32;"; // Dark green text
+                    } else if (item.contains("Thua")) {
+                        style += "-fx-background-color: #ffebee; " + // Light red
+                                "-fx-text-fill: #c62828;"; // Dark red text
+                    } else if (item.contains("Hòa")) {
+                        style += "-fx-background-color: #fff3e0; " + // Light orange
+                                "-fx-text-fill: #e65100;"; // Dark orange text
+                    } else {
+                        style += "-fx-text-fill: #333333;"; // Default dark gray
+                    }
+                    
+                    setStyle(style);
+                }
+            }
+        });
+
+        Label loadingLabel = new Label("Đang tải...");
+        loadingLabel.setFont(Font.font("Arial", 14));
+        loadingLabel.setTextFill(Color.GRAY);
+        
+        VBox contentBox = new VBox(15);
+        contentBox.getChildren().addAll(loadingLabel, historyList);
+
+        dialogRoot.getChildren().addAll(titleLabel, contentBox);
+
+        Button btnClose = new Button("Đóng");
+        btnClose.setStyle("-fx-background-color: #2d5016; " +
+                         "-fx-background-radius: 15; " +
+                         "-fx-text-fill: white; " +
+                         "-fx-font-size: 14px; " +
+                         "-fx-font-weight: bold; " +
+                         "-fx-pref-width: 120; " +
+                         "-fx-pref-height: 40; " +
+                         "-fx-cursor: hand;");
+        btnClose.setOnMouseEntered(e -> btnClose.setStyle(
+            "-fx-background-color: #3a6b1f; " +
+            "-fx-background-radius: 15; " +
+            "-fx-text-fill: white; " +
+            "-fx-font-size: 14px; " +
+            "-fx-font-weight: bold; " +
+            "-fx-pref-width: 120; " +
+            "-fx-pref-height: 40; " +
+            "-fx-cursor: hand;"));
+        btnClose.setOnMouseExited(e -> btnClose.setStyle(
+            "-fx-background-color: #2d5016; " +
+            "-fx-background-radius: 15; " +
+            "-fx-text-fill: white; " +
+            "-fx-font-size: 14px; " +
+            "-fx-font-weight: bold; " +
+            "-fx-pref-width: 120; " +
+            "-fx-pref-height: 40; " +
+            "-fx-cursor: hand;"));
+        btnClose.setOnAction(e -> dialog.close());
+
+        HBox buttonBox = new HBox();
+        buttonBox.setAlignment(Pos.CENTER);
+        buttonBox.getChildren().add(btnClose);
+        dialogRoot.getChildren().add(buttonBox);
+
+        Scene dialogScene = new Scene(dialogRoot, 550, 550);
+        dialogScene.setFill(null); // Transparent scene
+        dialog.setScene(dialogScene);
+
+        // Center dialog relative to lobby window
+        double dialogWidth = 550;
+        double dialogHeight = 550;
+        double lobbyX = this.getX();
+        double lobbyY = this.getY();
+        double lobbyWidth = this.getWidth();
+        double lobbyHeight = this.getHeight();
+
+        dialog.setX(lobbyX + (lobbyWidth - dialogWidth) / 2);
+        dialog.setY(lobbyY + (lobbyHeight - dialogHeight) / 2);
+
+        dialog.show();
+
+        // Request history in background thread
+        Task<Void> historyTask = new Task<Void>() {
+            @Override
+            protected Void call() {
+                try {
+                    // Send GET_HISTORY command
+                    String resp = client.sendCommand("GET_HISTORY;" + username);
+                    if (resp == null || !resp.startsWith("HISTORY_REQUEST_OK")) {
+                        Platform.runLater(() -> {
+                            loadingLabel.setText("Lỗi: " + (resp != null ? resp : "Không có phản hồi"));
+                        });
+                        return null;
+                    }
+
+                    // Poll for HISTORY messages
+                    List<String> matches = new java.util.ArrayList<>();
+                    boolean historyEnd = false;
+                    int pollCount = 0;
+                    int maxPolls = 50; // Safety limit
+
+                    while (!historyEnd && pollCount < maxPolls) {
+                        String pollResp = client.sendCommand("POLL");
+                        if (pollResp == null) {
+                            break;
+                        }
+
+                        if (pollResp.equals("NO_EVENT")) {
+                            // Wait a bit before polling again
+                            Thread.sleep(100);
+                            pollCount++;
+                            continue;
+                        }
+
+                        if (pollResp.startsWith("HISTORY;")) {
+                            // Parse: HISTORY;player1;player2;score1;score2;winner
+                            String[] parts = pollResp.split(";");
+                            if (parts.length >= 6) {
+                                String p1 = parts[1];
+                                String p2 = parts[2];
+                                int score1 = Integer.parseInt(parts[3]);
+                                int score2 = Integer.parseInt(parts[4]);
+                                String winner = parts[5];
+                                
+                                // Determine if current user won - compare with trimmed and case-insensitive
+                                boolean userWon = false;
+                                String trimmedP1 = p1.trim();
+                                String trimmedP2 = p2.trim();
+                                String trimmedUsername = username.trim();
+                                
+                                if (winner.equals("player1")) {
+                                    userWon = trimmedP1.equalsIgnoreCase(trimmedUsername);
+                                } else if (winner.equals("player2")) {
+                                    userWon = trimmedP2.equalsIgnoreCase(trimmedUsername);
+                                }
+                                
+                                // Format: "test1 vs test2 | Điểm: X - Y | Thắng/Thua"
+                                String resultText;
+                                if (winner.equals("draw")) {
+                                    resultText = "Hòa";
+                                } else {
+                                    resultText = userWon ? "Thắng" : "Thua";
+                                }
+                                
+                                String displayText = String.format("%s vs %s | Điểm: %d - %d | %s", 
+                                    trimmedP1, trimmedP2, score1, score2, resultText);
+                                matches.add(displayText);
+                            } else {
+                                System.err.println("[CLIENT] HISTORY message has wrong format. Expected 6 parts, got " + parts.length);
+                            }
+                        } else if (pollResp.equals("HISTORY_END")) {
+                            historyEnd = true;
+                            break;
+                        } else {
+                            // Other event, skip it but continue polling
+                            pollCount++;
+                            continue;
+                        }
+                        pollCount++;
+                    }
+
+                    // Update UI with results
+                    final List<String> finalMatches = matches;
+                    Platform.runLater(() -> {
+                        loadingLabel.setVisible(false);
+                        if (finalMatches.isEmpty()) {
+                            historyList.getItems().add("Bạn chưa có trận đấu nào.");
+                        } else {
+                            historyList.getItems().addAll(finalMatches);
+                        }
+                    });
+
+                } catch (Exception e) {
+                    Platform.runLater(() -> {
+                        loadingLabel.setText("Lỗi: " + e.getMessage());
+                    });
+                    e.printStackTrace();
+                }
+                return null;
+            }
+        };
+
+        new Thread(historyTask).start();
+    }
+
     private void handleClose(WindowEvent e) {
+        // Stop background music when closing
+        SoundManager.getInstance().stopBackgroundMusic();
         stopPolling();
         closeClientQuiet();
     }

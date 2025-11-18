@@ -20,16 +20,31 @@ public class Server {
         Database.debugInfo();
 
         int port = 9090;
-        System.out.println("Server started on port " + port);
+        System.out.println("Starting server on port " + port);
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
+            System.out.println("Server started successfully on port " + port);
             while (true) {
-                Socket socket = serverSocket.accept();
-                System.out.println("Client connect " + socket.getInetAddress());
-                new ClientHandler(socket).start();
+                try {
+                    Socket socket = serverSocket.accept();
+                    System.out.println("Client connected from " + socket.getInetAddress());
+                    new ClientHandler(socket).start();
+                } catch (IOException e) {
+                    System.err.println("Error accepting client connection: " + e.getMessage());
+                    e.printStackTrace();
+                    // Continue accepting other connections
+                }
             }
-        } catch (IOException e) {
+        } catch (java.net.BindException e) {
+            System.err.println("ERROR: Port " + port + " is already in use!");
+            System.err.println("Please close the existing server instance or use a different port.");
+            System.err.println("You can find the process using: netstat -ano | findstr :9090");
             e.printStackTrace();
+            System.exit(1);
+        } catch (IOException e) {
+            System.err.println("ERROR: Failed to start server: " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
         }
     }
 }

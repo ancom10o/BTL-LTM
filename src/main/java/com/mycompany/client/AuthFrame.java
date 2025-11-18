@@ -12,6 +12,8 @@ import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
+import javafx.animation.ScaleTransition;
+import javafx.util.Duration;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.WindowEvent;
@@ -84,6 +86,12 @@ public class AuthFrame extends Stage {
         root.getChildren().add(formPanel);
         root.setAlignment(Pos.CENTER);
         
+        // Add sound toggle button in top right corner
+        Button btnSoundToggle = createSoundToggleButton();
+        StackPane.setAlignment(btnSoundToggle, Pos.TOP_RIGHT);
+        StackPane.setMargin(btnSoundToggle, new Insets(15, 15, 0, 0));
+        root.getChildren().add(btnSoundToggle);
+        
         // Set root background to match image edges
         root.setStyle("-fx-background-color: transparent;");
 
@@ -92,6 +100,11 @@ public class AuthFrame extends Stage {
         setScene(scene);
         setResizable(false); // Prevent resizing to maintain layout
         centerOnScreen();
+
+        // Start background music
+        setOnShown(e -> {
+            SoundManager.getInstance().playBackgroundMusic("/sounds/notification/back_ground.wav");
+        });
 
         // Events
         cbShowLogin.setOnAction(e -> togglePasswordVisibility(true));
@@ -104,6 +117,86 @@ public class AuthFrame extends Stage {
                 switchToLogin();
             }
         });
+    }
+    
+    private Button createSoundToggleButton() {
+        Button btn = new Button();
+        updateSoundButtonIcon(btn);
+        
+        // Base style
+        String baseStyle = "-fx-background-color: rgba(255, 255, 255, 0.7); " +
+                          "-fx-background-radius: 20; " +
+                          "-fx-pref-width: 40; " +
+                          "-fx-pref-height: 40; " +
+                          "-fx-font-size: 20px; " +
+                          "-fx-cursor: hand; " +
+                          "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.2), 5, 0, 0, 2);";
+        btn.setStyle(baseStyle);
+        
+        // Hover effect - brighter background and scale up
+        btn.setOnMouseEntered(e -> {
+            btn.setStyle("-fx-background-color: rgba(255, 255, 255, 0.9); " +
+                        "-fx-background-radius: 20; " +
+                        "-fx-pref-width: 40; " +
+                        "-fx-pref-height: 40; " +
+                        "-fx-font-size: 20px; " +
+                        "-fx-cursor: hand; " +
+                        "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.4), 8, 0, 0, 3);");
+            // Scale up animation
+            ScaleTransition scaleUp = new ScaleTransition(Duration.millis(150), btn);
+            scaleUp.setToX(1.15);
+            scaleUp.setToY(1.15);
+            scaleUp.play();
+        });
+        
+        // Mouse exit - return to normal
+        btn.setOnMouseExited(e -> {
+            btn.setStyle(baseStyle);
+            // Scale down animation
+            ScaleTransition scaleDown = new ScaleTransition(Duration.millis(150), btn);
+            scaleDown.setToX(1.0);
+            scaleDown.setToY(1.0);
+            scaleDown.play();
+        });
+        
+        // Click effect - scale down then up
+        btn.setOnMousePressed(e -> {
+            ScaleTransition scaleDown = new ScaleTransition(Duration.millis(100), btn);
+            scaleDown.setToX(0.9);
+            scaleDown.setToY(0.9);
+            scaleDown.play();
+        });
+        
+        btn.setOnMouseReleased(e -> {
+            ScaleTransition scaleUp = new ScaleTransition(Duration.millis(100), btn);
+            scaleUp.setToX(1.0);
+            scaleUp.setToY(1.0);
+            scaleUp.play();
+        });
+        
+        btn.setOnAction(e -> {
+            SoundManager soundManager = SoundManager.getInstance();
+            soundManager.setSoundEnabled(!soundManager.isSoundEnabled());
+            updateSoundButtonIcon(btn);
+            
+            // Click animation - bounce effect
+            ScaleTransition bounce = new ScaleTransition(Duration.millis(200), btn);
+            bounce.setToX(0.85);
+            bounce.setToY(0.85);
+            bounce.setAutoReverse(true);
+            bounce.setCycleCount(2);
+            bounce.play();
+        });
+        
+        return btn;
+    }
+    
+    private void updateSoundButtonIcon(Button btn) {
+        if (SoundManager.getInstance().isSoundEnabled()) {
+            btn.setText("🔊");
+        } else {
+            btn.setText("🔇");
+        }
     }
 
     private VBox buildLoginForm() {
@@ -535,6 +628,8 @@ public class AuthFrame extends Stage {
     }
 
     private void handleClose(WindowEvent e) {
+        // Stop background music when closing
+        SoundManager.getInstance().stopBackgroundMusic();
         closeClientQuiet();
     }
 
