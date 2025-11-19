@@ -58,6 +58,7 @@ public class ClientHandler extends Thread {
                         case "GET_HISTORY" -> handleGetHistory(parts, out);
                         case "GET_LEADERBOARD" -> handleGetLeaderboard(parts, out);
                         case "ANSWER_RESULT" -> handleAnswerResult(parts, out);
+                        case "MATCH_END" -> handleMatchEnd(parts, out);
 
                             case "LOGOUT"   -> { handleLogout(out); return; }
                             case "PING"     -> out.println("PONG");
@@ -613,6 +614,122 @@ private void calculateAndSendRoundResult(String matchKey, int roundNo,
                 out.flush();
             } catch (Exception ex) {
                 System.err.println("[ANSWER_RESULT] Failed to send error: " + ex.getMessage());
+            }
+        }
+    }
+    
+    // MATCH_END;matchKey;player1;player2;score1;score2
+    private void handleMatchEnd(String[] parts, PrintWriter out) {
+        System.out.println("[MATCH_END] Starting handler, parts.length=" + parts.length + ", currentUser=" + currentUser);
+        
+        if (currentUser == null) {
+            System.err.println("[MATCH_END] Unauthenticated");
+            try {
+                out.println("ERROR;Unauthenticated");
+                out.flush();
+            } catch (Exception e) {
+                System.err.println("[MATCH_END] Failed to send error: " + e.getMessage());
+            }
+            return;
+        }
+        
+        if (parts.length < 6) {
+            System.err.println("[MATCH_END] Invalid syntax, parts.length=" + parts.length);
+            try {
+                out.println("ERROR;Syntax: MATCH_END;matchKey;player1;player2;score1;score2");
+                out.flush();
+            } catch (Exception e) {
+                System.err.println("[MATCH_END] Failed to send error: " + e.getMessage());
+            }
+            return;
+        }
+        
+        try {
+            String matchKey = parts[1].trim();
+            String player1 = parts[2].trim();
+            String player2 = parts[3].trim();
+            int score1 = Integer.parseInt(parts[4].trim());
+            int score2 = Integer.parseInt(parts[5].trim());
+            
+            System.out.println("[MATCH_END] Received from " + currentUser + 
+                             " | matchKey=" + matchKey + ", player1=" + player1 + 
+                             ", player2=" + player2 + ", score1=" + score1 + ", score2=" + score2);
+            
+            // Kiểm tra currentUser có phải là player1 hoặc player2 không
+            if (!currentUser.equals(player1) && !currentUser.equals(player2)) {
+                System.err.println("[MATCH_END] User mismatch: " + currentUser + " is not " + player1 + " or " + player2);
+                out.println("ERROR;User not in match");
+                out.flush();
+                return;
+            }
+            
+            // Xác định người thắng
+            String winner;
+            if (score1 > score2) {
+                winner = "player1";
+            } else if (score2 > score1) {
+                winner = "player2";
+            } else {
+                winner = "draw";
+            }
+            
+            // Lưu match vào database (chỉ lưu 1 lần, kiểm tra xem đã lưu chưa)
+            // Sử dụng synchronized để đảm bảo chỉ một thread có thể lưu match
+            synchronized (Server.ACTIVE_MATCHES) {
+                MatchState matchState = Server.ACTIVE_MATCHES.get(matchKey);
+                if (matchState != null) {
+                    // Kiểm tra xem đã lưu match chưa (dùng một flag trong MatchState hoặc kiểm tra database)
+                    // Tạm thời: luôn lưu, sau này có thể thêm flag để tránh lưu 2 lần
+                    try {
+                        Database.saveMatch(player1, player2, score1, score2, winner);
+                        System.out.println("[MATCH_END] Match saved to database: " + player1 + " vs " + player2 + 
+                                         ", score=" + score1 + "-" + score2 + ", winner=" + winner);
+                        
+                        // Xóa MatchState khỏi ACTIVE_MATCHES sau khi đã lưu
+                        Server.ACTIVE_MATCHES.remove(matchKey);
+                    } catch (SQLException e) {
+                        System.err.println("[MATCH_END] Error saving match to database: " + e.getMessage());
+                        e.printStackTrace();
+                        out.println("ERROR;Database error: " + e.getMessage());
+                        out.flush();
+                        return;
+                    }
+                } else {
+                    System.out.println("[MATCH_END] MatchState not found for matchKey: " + matchKey + ", trying to save anyway");
+                    // Vẫn cố gắng lưu vào database (có thể match đã bị xóa khỏi ACTIVE_MATCHES)
+                    try {
+                        Database.saveMatch(player1, player2, score1, score2, winner);
+                        System.out.println("[MATCH_END] Match saved to database (no MatchState): " + player1 + " vs " + player2);
+                    } catch (SQLException e) {
+                        System.err.println("[MATCH_END] Error saving match to database: " + e.getMessage());
+                        e.printStackTrace();
+                        out.println("ERROR;Database error: " + e.getMessage());
+                        out.flush();
+                        return;
+                    }
+                }
+            }
+            
+            out.println("MATCH_END_OK");
+            out.flush();
+            System.out.println("[MATCH_END] Response sent successfully to " + currentUser);
+        } catch (NumberFormatException e) {
+            System.err.println("[MATCH_END] NumberFormatException: " + e.getMessage());
+            e.printStackTrace();
+            try {
+                out.println("ERROR;Invalid number format");
+                out.flush();
+            } catch (Exception ex) {
+                System.err.println("[MATCH_END] Failed to send error: " + ex.getMessage());
+            }
+        } catch (Exception e) {
+            System.err.println("[MATCH_END] Error: " + e.getMessage());
+            e.printStackTrace();
+            try {
+                out.println("ERROR;Invalid parameters: " + e.getMessage());
+                out.flush();
+            } catch (Exception ex) {
+                System.err.println("[MATCH_END] Failed to send error: " + ex.getMessage());
             }
         }
     }

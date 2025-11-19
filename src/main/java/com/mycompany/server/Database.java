@@ -140,6 +140,68 @@ public class Database {
         return leaderboard;
     }
 
+    /**
+     * Save match result to database and update player statistics
+     */
+    public static void saveMatch(String player1, String player2, int score1, int score2, String winner) throws SQLException {
+        try (Connection conn = ds().getConnection()) {
+            conn.setAutoCommit(false); // Start transaction
+            
+            try {
+                // Insert match record
+                String insertMatchSql = "INSERT INTO public.matches (player1, player2, score1, score2, winner, total_rounds, started_at, finished_at) " +
+                                       "VALUES (?, ?, ?, ?, ?, 10, NOW(), NOW())";
+                int matchId;
+                try (PreparedStatement ps = conn.prepareStatement(insertMatchSql, Statement.RETURN_GENERATED_KEYS)) {
+                    ps.setString(1, player1);
+                    ps.setString(2, player2);
+                    ps.setInt(3, score1);
+                    ps.setInt(4, score2);
+                    ps.setString(5, winner);
+                    ps.executeUpdate();
+                    
+                    // Get generated match ID
+                    try (ResultSet rs = ps.getGeneratedKeys()) {
+                        if (rs.next()) {
+                            matchId = rs.getInt(1);
+                        } else {
+                            throw new SQLException("Failed to get match ID");
+                        }
+                    }
+                }
+                
+                // Update statistics for both players
+                // Increment total_matches for both
+                String updateTotalSql = "UPDATE public.users SET total_matches = total_matches + 1 WHERE username = ?";
+                try (PreparedStatement ps = conn.prepareStatement(updateTotalSql)) {
+                    ps.setString(1, player1);
+                    ps.executeUpdate();
+                    
+                    ps.setString(1, player2);
+                    ps.executeUpdate();
+                }
+                
+                // Increment wins for the winner (if not draw)
+                if (!winner.equals("draw")) {
+                    String updateWinsSql = "UPDATE public.users SET wins = wins + 1 WHERE username = ?";
+                    try (PreparedStatement ps = conn.prepareStatement(updateWinsSql)) {
+                        String winnerUsername = winner.equals("player1") ? player1 : player2;
+                        ps.setString(1, winnerUsername);
+                        ps.executeUpdate();
+                    }
+                }
+                
+                conn.commit(); // Commit transaction
+                System.out.println("[Database] Match saved successfully: matchId=" + matchId + 
+                                 ", " + player1 + " vs " + player2 + ", score=" + score1 + "-" + score2 + ", winner=" + winner);
+            } catch (SQLException e) {
+                conn.rollback(); // Rollback on error
+                System.err.println("[Database] Error saving match, transaction rolled back: " + e.getMessage());
+                throw e;
+            }
+        }
+    }
+
     public static void debugInfo() {
     try (var c = DbPool.get().getConnection();
          var st = c.createStatement();

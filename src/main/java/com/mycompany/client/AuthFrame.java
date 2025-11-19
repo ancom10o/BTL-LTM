@@ -28,6 +28,10 @@ public class AuthFrame extends Stage {
 
     private boolean isLoginMode = true; // true = Login, false = Register
 
+    // Server connection fields
+    private final TextField tfServerIP = new TextField(DEFAULT_HOST);
+    private final TextField tfServerPort = new TextField(String.valueOf(DEFAULT_PORT));
+
     // Login fields
     private final TextField tfUserLogin = new TextField();
     private final PasswordField pfPassLogin = new PasswordField();
@@ -56,9 +60,9 @@ public class AuthFrame extends Stage {
         // Load background image
         InputStream bgStream = getClass().getResourceAsStream("/images/background/login_background.jpg");
         
-        // Smaller window size - adjust to fit image better
+        // Window size - increased height to fit server IP/Port fields
         double windowWidth = 900;
-        double windowHeight = 675;
+        double windowHeight = 750;
         
         // Main container with background
         StackPane root = new StackPane();
@@ -200,8 +204,8 @@ public class AuthFrame extends Stage {
     }
 
     private VBox buildLoginForm() {
-        VBox form = new VBox(16);
-        form.setPadding(new Insets(12, 30, 24, 30)); // Reduced top padding, keep others
+        VBox form = new VBox(12); // Reduced spacing from 16 to 12
+        form.setPadding(new Insets(10, 30, 20, 30)); // Reduced padding
         form.setAlignment(Pos.CENTER);
         
         // Semi-transparent background for form
@@ -211,16 +215,38 @@ public class AuthFrame extends Stage {
 
         // Title
         Label titleLabel = new Label(isLoginMode ? "Login" : "Register");
-        titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 28)); // Larger title
+        titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 26)); // Slightly smaller title
         titleLabel.setTextFill(Color.WHITE);
         titleLabel.setStyle("-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 8, 0, 0, 2);");
 
         // Input fields container
-        VBox fieldsContainer = new VBox(14);
+        VBox fieldsContainer = new VBox(10); // Reduced spacing from 14 to 10
         fieldsContainer.setAlignment(Pos.CENTER);
         fieldsContainer.setMaxWidth(280);
 
         if (isLoginMode) {
+            // Server IP field
+            Label serverIPLabel = new Label("Server IP (IP máy chạy server)");
+            serverIPLabel.setFont(Font.font("Arial", 11));
+            serverIPLabel.setTextFill(Color.WHITE);
+            serverIPLabel.setStyle("-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 4, 0, 0, 1);");
+            
+            tfServerIP.setPrefHeight(36);
+            tfServerIP.setStyle("-fx-background-radius: 18; -fx-background-color: white; " +
+                               "-fx-font-size: 13px; -fx-padding: 0 12;");
+            tfServerIP.setPromptText("IP máy server (ví dụ: 192.168.1.100)");
+
+            // Server Port field
+            Label serverPortLabel = new Label("Port");
+            serverPortLabel.setFont(Font.font("Arial", 12));
+            serverPortLabel.setTextFill(Color.WHITE);
+            serverPortLabel.setStyle("-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 4, 0, 0, 1);");
+            
+            tfServerPort.setPrefHeight(36);
+            tfServerPort.setStyle("-fx-background-radius: 18; -fx-background-color: white; " +
+                                "-fx-font-size: 13px; -fx-padding: 0 12;");
+            tfServerPort.setPromptText("9090");
+
             // Username field
             Label userLabel = new Label("User name");
             userLabel.setFont(Font.font("Arial", 12)); // Larger font
@@ -252,12 +278,36 @@ public class AuthFrame extends Stage {
             cbShowLogin.setStyle("-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 5, 0, 0, 1);");
 
             fieldsContainer.getChildren().addAll(
+                serverIPLabel, tfServerIP,
+                serverPortLabel, tfServerPort,
                 userLabel, tfUserLogin,
                 passLabel, passwordBox,
                 cbShowLogin
             );
         } else {
             // Register mode
+            // Server IP field
+            Label serverIPLabel = new Label("Server IP (IP máy chạy server)");
+            serverIPLabel.setFont(Font.font("Arial", 11));
+            serverIPLabel.setTextFill(Color.WHITE);
+            serverIPLabel.setStyle("-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 4, 0, 0, 1);");
+            
+            tfServerIP.setPrefHeight(36);
+            tfServerIP.setStyle("-fx-background-radius: 18; -fx-background-color: white; " +
+                               "-fx-font-size: 13px; -fx-padding: 0 12;");
+            tfServerIP.setPromptText("IP máy server (ví dụ: 192.168.1.100)");
+
+            // Server Port field
+            Label serverPortLabel = new Label("Port");
+            serverPortLabel.setFont(Font.font("Arial", 12));
+            serverPortLabel.setTextFill(Color.WHITE);
+            serverPortLabel.setStyle("-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 4, 0, 0, 1);");
+            
+            tfServerPort.setPrefHeight(36);
+            tfServerPort.setStyle("-fx-background-radius: 18; -fx-background-color: white; " +
+                                "-fx-font-size: 13px; -fx-padding: 0 12;");
+            tfServerPort.setPromptText("9090");
+
             Label userLabel = new Label("User name");
             userLabel.setFont(Font.font("Arial", 12)); // Larger font
             userLabel.setTextFill(Color.WHITE);
@@ -301,6 +351,8 @@ public class AuthFrame extends Stage {
             cbShowReg.setStyle("-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 5, 0, 0, 1);");
 
             fieldsContainer.getChildren().addAll(
+                serverIPLabel, tfServerIP,
+                serverPortLabel, tfServerPort,
                 userLabel, tfUserReg,
                 passLabel, passwordBox1,
                 passLabel2, passwordBox2,
@@ -455,9 +507,32 @@ public class AuthFrame extends Stage {
     private boolean ensureClient(boolean showDialog) {
         try {
             closeClientQuiet();
-            client = new AuthClient(DEFAULT_HOST, DEFAULT_PORT);
+            // Lấy IP và port từ text field, nếu trống thì dùng giá trị mặc định
+            String host = tfServerIP.getText().trim();
+            if (host.isEmpty()) {
+                host = DEFAULT_HOST;
+            }
+            
+            int port = DEFAULT_PORT;
+            try {
+                String portStr = tfServerPort.getText().trim();
+                if (!portStr.isEmpty()) {
+                    port = Integer.parseInt(portStr);
+                }
+            } catch (NumberFormatException e) {
+                if (showDialog) {
+                    Platform.runLater(() -> {
+                        Alert alert = new Alert(Alert.AlertType.ERROR);
+                        alert.setTitle("Lỗi cấu hình");
+                        alert.setHeaderText("Port không hợp lệ. Sử dụng port mặc định: " + DEFAULT_PORT);
+                        alert.showAndWait();
+                    });
+                }
+            }
+            
+            client = new AuthClient(host, port);
             client.connect();
-            log("Connected to " + DEFAULT_HOST + ":" + DEFAULT_PORT);
+            log("Connected to " + host + ":" + port);
             // Removed "Connection OK" dialog - no need to show
             return true;
         } catch (Exception ex) {
@@ -466,7 +541,9 @@ public class AuthFrame extends Stage {
                 Platform.runLater(() -> {
                     Alert alert = new Alert(Alert.AlertType.ERROR);
                     alert.setTitle("Lỗi kết nối");
-                    alert.setHeaderText("Không thể kết nối đến server: " + ex.getMessage());
+                    String host = tfServerIP.getText().trim().isEmpty() ? DEFAULT_HOST : tfServerIP.getText().trim();
+                    alert.setHeaderText("Không thể kết nối đến server " + host + ": " + ex.getMessage());
+                    alert.setContentText("Vui lòng kiểm tra:\n- IP server đúng chưa?\n- Server đã chạy chưa?\n- Firewall có chặn không?");
                     alert.showAndWait();
                 });
             }
@@ -498,14 +575,30 @@ public class AuthFrame extends Stage {
             boolean ok = r.toUpperCase().startsWith("LOGIN_OK");
             if (ok) {
                 // Login successful - go directly to lobby, no alert
-                final String hostVal = DEFAULT_HOST;
-                final int portVal = DEFAULT_PORT;
+                // Lấy IP và port từ text field, nếu trống thì dùng giá trị mặc định
+                String hostVal = tfServerIP.getText().trim();
+                if (hostVal.isEmpty()) {
+                    hostVal = DEFAULT_HOST;
+                }
+                
+                int portVal = DEFAULT_PORT;
+                try {
+                    String portStr = tfServerPort.getText().trim();
+                    if (!portStr.isEmpty()) {
+                        portVal = Integer.parseInt(portStr);
+                    }
+                } catch (NumberFormatException ex) {
+                    // Sử dụng port mặc định nếu không parse được
+                }
+                
+                final String finalHost = hostVal;
+                final int finalPort = portVal;
                 final String userVal = user;
 
                 Platform.runLater(() -> {
                     // Don't close client here - LobbyFrame needs it
                     // Just create lobby and close auth frame
-                    new LobbyFrame(userVal, hostVal, portVal, client).show();
+                    new LobbyFrame(userVal, finalHost, finalPort, client).show();
                     // Don't set client = null here, let LobbyFrame manage it
                     close();
                 });
